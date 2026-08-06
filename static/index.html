@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stablex — Kripto Piyasa Canlı Radarı</title>
+
+<!-- Play CDN: hızlı prototipleme içindir, prodüksiyonda derlenmiş Tailwind kullanın. -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ["Nunito Sans", "sans-serif"] },
+        keyframes: {
+          fadeIn: {
+            "0%": { opacity: 0, transform: "translateY(-6px)" },
+            "100%": { opacity: 1, transform: "translateY(0)" },
+          },
+          flashUp: {
+            "0%": { backgroundColor: "rgba(0,197,88,0.22)" },
+            "100%": { backgroundColor: "rgba(0,197,88,0)" },
+          },
+          flashDown: {
+            "0%": { backgroundColor: "rgba(251,44,54,0.22)" },
+            "100%": { backgroundColor: "rgba(251,44,54,0)" },
+          },
+        },
+        animation: {
+          "fade-in": "fadeIn 0.5s ease-out forwards",
+          "flash-up": "flashUp 0.9s ease-out",
+          "flash-down": "flashDown 0.9s ease-out",
+        },
+      },
+    },
+  };
+</script>
+</head>
+
+<body class="bg-[#f9fafb] text-[#000] font-sans antialiased">
+
+  <!-- ============ ÜST BAR ============ -->
+  <header class="bg-[#000] px-6 sm:px-10 py-5 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-2">
+      <span class="text-lg font-extrabold tracking-tight text-white">STABLEX</span>
+      <span class="w-1.5 h-1.5 rounded-full bg-[#dc0005]"></span>
+      <span class="text-xs font-semibold text-neutral-400 hidden sm:inline">Kripto Piyasa Canlı Radarı</span>
+    </div>
+    <div id="connectionStatus" class="flex items-center gap-2 text-xs font-bold text-neutral-400">
+      <span id="connectionDot" class="w-2 h-2 rounded-full bg-neutral-500"></span>
+      <span id="connectionLabel">Bağlanıyor…</span>
+    </div>
+  </header>
+
+  <!-- ============ İKİ SÜTUNLU DÜZEN ============ -->
+  <div class="max-w-7xl mx-auto px-6 sm:px-10 py-8 sm:py-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+    <!-- ---------- SOL SÜTUN (geniş): Haber akışı ---------- -->
+    <section class="lg:col-span-2 flex flex-col gap-6">
+      <div class="flex flex-col gap-1">
+        <h1 class="text-2xl font-extrabold tracking-tight text-[#000]">Haber Akışı</h1>
+        <p class="text-sm font-medium text-[#6a7282]">
+          Beyaz liste kaynaklardan (Küresel/Yerel/Regülasyon) WebSocket üzerinden anlık.
+        </p>
+      </div>
+
+      <div class="relative">
+        <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6a7282]" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="9" cy="9" r="6" /><path d="M17 17l-4-4" />
+        </svg>
+        <input
+          id="newsSearch"
+          type="text"
+          placeholder="Coin veya haberde ara (ör. BTC, regülasyon, DeFi)…"
+          class="w-full rounded-xl bg-[#fff] pl-11 pr-4 py-3 text-sm font-medium text-[#000] placeholder:text-[#6a7282] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)] focus:outline-none focus:ring-2 focus:ring-[#dc0005]/30"
+        />
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <select
+          id="coinFilter"
+          class="rounded-full border border-[#e4e4e4] bg-[#fff] pl-4 pr-3 py-2 text-sm font-bold text-[#000] focus:outline-none focus:ring-2 focus:ring-[#dc0005]/30 cursor-pointer"
+        >
+          <option value="all">Tüm Varlıklar</option>
+        </select>
+
+        <button
+          id="sortToggle"
+          type="button"
+          class="flex items-center gap-2 rounded-full border border-[#e4e4e4] bg-[#fff] px-4 py-2 text-sm font-bold text-[#000] hover:border-[#dc0005] transition-colors duration-200"
+        >
+          <svg id="sortToggleIcon" class="w-3.5 h-3.5 transition-transform duration-200" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 4v12M10 16l-4-4M10 16l4-4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span id="sortToggleLabel">En Yeni Önce</span>
+        </button>
+      </div>
+
+      <div id="newsFeed" class="flex flex-col gap-5"></div>
+      <p id="newsEmpty" class="hidden text-sm font-medium text-[#6a7282] text-center py-6">
+        Bu aramayla eşleşen haber yok.
+      </p>
+    </section>
+
+    <!-- ---------- SAĞ SÜTUN (dar) ---------- -->
+    <aside class="flex flex-col gap-6">
+
+      <!-- Canlı Piyasa -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-4 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-extrabold text-[#000]">Canlı Piyasa</h2>
+          <span class="text-[10px] font-bold uppercase tracking-wide text-[#6a7282]">61 coin</span>
+        </div>
+        <p id="priceStaleness" class="text-[11px] font-semibold text-[#6a7282]"></p>
+        <div id="priceList" class="flex flex-col gap-1 max-h-96 overflow-y-auto pr-1"></div>
+      </div>
+
+      <!-- Düzenleyici Kaynaklar -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <h2 class="text-sm font-extrabold text-[#000]">Düzenleyici Kaynaklar</h2>
+        <div id="regulatoryLinks" class="flex flex-col gap-2"></div>
+      </div>
+
+      <!-- Reddit placeholder (Faz-2) -->
+      <div class="rounded-2xl p-6 flex flex-col items-center text-center gap-3 border border-dashed border-neutral-300 bg-white/60">
+        <div class="w-10 h-10 rounded-full bg-[#f9fafb] flex items-center justify-center">
+          <svg class="w-5 h-5 text-[#6a7282]" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
+            <circle cx="10" cy="10" r="7" />
+            <path d="M6.5 11.5c1 1 2 1.4 3.5 1.4s2.5-.4 3.5-1.4" />
+            <circle cx="7.5" cy="8.5" r=".6" fill="currentColor" stroke="none" />
+            <circle cx="12.5" cy="8.5" r=".6" fill="currentColor" stroke="none" />
+          </svg>
+        </div>
+        <h2 class="text-sm font-extrabold text-[#000]">Sosyal Medyanın Nabzı</h2>
+        <p class="text-xs font-semibold text-[#6a7282]">Yakında: Reddit Akışı</p>
+      </div>
+
+    </aside>
+  </div>
+
+<script>
+  const LABELS = {
+    kampanya_firsati: "Kampanya Fırsatı",
+    risk_uyarisi: "Risk Uyarısı",
+    regulasyon: "Regülasyon",
+    rakip_hareketi: "Rakip Hareketi",
+    genel_farkindalik: "Genel Farkındalık",
+    onemsiz: "Önemsiz",
+  };
+  const CHANNEL_LABELS = { push: "Push Bildirimi", email: "E-posta Bülteni", blog: "Blog İçeriği", sosyal: "Sosyal Medya" };
+
+  const newsFeed = document.getElementById("newsFeed");
+  const newsEmpty = document.getElementById("newsEmpty");
+  const newsSearch = document.getElementById("newsSearch");
+  const priceList = document.getElementById("priceList");
+  const regulatoryLinksEl = document.getElementById("regulatoryLinks");
+  const connectionDot = document.getElementById("connectionDot");
+  const connectionLabel = document.getElementById("connectionLabel");
+
+  // Sunucu tarafında main.py:index() tarafından gerçek JSON ile değiştirilir.
+  const REGULATORY_LINKS = /*__REGULATORY_LINKS__*/;
+  regulatoryLinksEl.innerHTML = REGULATORY_LINKS.map((link) => `
+    <a href="${link.url}" target="_blank" rel="noopener"
+       class="text-[13px] font-bold text-[#dc0005] hover:opacity-70 transition-opacity duration-200">
+      ${link.name} →
+    </a>`).join("");
+
+  // ---------- Güvenlik: dış kaynaklı (RSS/Gemini) metin/URL'leri innerHTML'e
+  // gömmeden önce temizle — bir haber başlığı/URL'i kötü niyetli/bozuk HTML
+  // içerse bile çalışmasın. ----------
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value ?? "";
+    return div.innerHTML;
+  }
+
+  function safeUrl(url) {
+    try {
+      const parsed = new URL(url, location.href);
+      return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "#";
+    } catch {
+      return "#";
+    }
+  }
+
+  const priceRows = {}; // sembol -> {row, priceEl, changeEl, lastPrice} — ilk mesajda dinamik oluşturulur
+
+  // ---------- Fiyat bayatlığı göstergesi ----------
+  // price_fetch_loop CoinGecko'yu 90sn'de bir çeker; istemci akışı 3sn'de bir
+  // yayınlasa da veri o 90sn'lik pencerede sabit kalır. Sunucu/ağ sorununda
+  // bunun ne kadar süredir güncellenmediğini görmek gerekir.
+  const priceStalenessEl = document.getElementById("priceStaleness");
+  const PRICE_FETCH_INTERVAL_MS = 90 * 1000;
+  const PRICE_STALE_THRESHOLD_MS = PRICE_FETCH_INTERVAL_MS * 3;
+  let lastPriceUpdateAt = null;
+
+  function updatePriceStalenessLabel() {
+    if (lastPriceUpdateAt === null) {
+      priceStalenessEl.textContent = "Fiyat verisi bekleniyor…";
+      priceStalenessEl.className = "text-[11px] font-semibold text-[#6a7282]";
+      return;
+    }
+    const elapsedMs = Date.now() - lastPriceUpdateAt;
+    const elapsedSec = Math.round(elapsedMs / 1000);
+    const label = elapsedSec < 60 ? `${elapsedSec} sn önce güncellendi` : `${Math.round(elapsedSec / 60)} dk önce güncellendi`;
+    const stale = elapsedMs > PRICE_STALE_THRESHOLD_MS;
+    priceStalenessEl.textContent = stale ? `⚠ ${label} (bağlantıyı kontrol edin)` : label;
+    priceStalenessEl.className = `text-[11px] font-semibold ${stale ? "text-[#dc0005]" : "text-[#6a7282]"}`;
+  }
+
+  setInterval(updatePriceStalenessLabel, 5000);
+  updatePriceStalenessLabel();
+
+  function fmtUsd(v) {
+    if (v === null || v === undefined) return "—";
+    const digits = v >= 10 ? 2 : v >= 0.01 ? 4 : 8;
+    return "$" + v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+
+  function getOrCreatePriceRow(symbol) {
+    if (priceRows[symbol]) return priceRows[symbol];
+
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors";
+    row.innerHTML = `
+      <span class="text-[13px] font-extrabold text-[#000]">${symbol}</span>
+      <span class="flex items-baseline gap-2">
+        <span class="price text-[13px] font-bold text-[#000] tabular-nums">—</span>
+        <span class="change text-[11px] font-bold tabular-nums text-[#6a7282] w-16 text-right">—</span>
+      </span>`;
+    priceList.appendChild(row);
+
+    const entry = { row, priceEl: row.querySelector(".price"), changeEl: row.querySelector(".change"), lastPrice: null };
+    priceRows[symbol] = entry;
+    return entry;
+  }
+
+  function handlePriceUpdate(payload) {
+    lastPriceUpdateAt = Date.now();
+    updatePriceStalenessLabel();
+    payload.veri.forEach((coin) => {
+      const entry = getOrCreatePriceRow(coin.sembol);
+      if (coin.fiyat_usd === null || coin.fiyat_usd === undefined) return; // henüz ilk fetch gelmedi
+
+      const direction = entry.lastPrice === null ? null : coin.fiyat_usd >= entry.lastPrice ? "up" : "down";
+      entry.lastPrice = coin.fiyat_usd;
+
+      entry.priceEl.textContent = fmtUsd(coin.fiyat_usd);
+      const up = coin.degisim_24s >= 0;
+      entry.changeEl.textContent = `${up ? "▲" : "▼"} ${Math.abs(coin.degisim_24s).toFixed(2)}%`;
+      entry.changeEl.className = `change text-[11px] font-bold tabular-nums w-16 text-right ${up ? "text-[#00c758]" : "text-[#fb2c36]"}`;
+
+      if (direction) {
+        entry.row.classList.remove("animate-flash-up", "animate-flash-down");
+        void entry.row.offsetWidth; // reflow — animasyonu yeniden tetikle
+        entry.row.classList.add(direction === "up" ? "animate-flash-up" : "animate-flash-down");
+      }
+    });
+  }
+
+  function formatSuggestion(text) {
+    return escapeHtml(text || "").replace(/^([^:\n]{2,20}):/gm, "<b>$1:</b>");
+  }
+
+  function marketingActionsHtml(item) {
+    const channels = item.onerilen_kanallar || [];
+    if (!channels.length) return "";
+    const details = channels.map((ch) => `
+      <details class="rounded-lg bg-[#f9fafb] px-3" data-channel="${escapeHtml(ch)}">
+        <summary class="list-none cursor-pointer flex items-center justify-between gap-2 py-2 text-[12px] font-extrabold text-[#000]">
+          ${escapeHtml(CHANNEL_LABELS[ch] || ch)}
+          <span class="chevron text-[#6a7282] transition-transform duration-200 text-[10px]">▾</span>
+        </summary>
+        <p class="pb-3 text-[13px] text-[#364153] leading-relaxed whitespace-pre-line">${formatSuggestion(item.icerik_onerisi[ch])}</p>
+      </details>`).join("");
+
+    return `<div class="flex flex-wrap gap-2">${details}</div>`;
+  }
+
+  function fmtTime(iso) {
+    return new Date(iso).toLocaleString("tr-TR", {
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  function renderNewsCard(item) {
+    const assets = (item.ilgili_varliklar || [])
+      .map((a) => `<span class="text-[11px] font-bold tabular-nums text-[#364153] bg-[#f9fafb] rounded-md px-2 py-1">${escapeHtml(a)}</span>`)
+      .join("");
+
+    const card = document.createElement("article");
+    card.className = "bg-[#fff] rounded-2xl p-6 flex flex-col gap-4 opacity-0 animate-fade-in shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]";
+    card.dataset.id = item.id;
+
+    card.innerHTML = `
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282]">${escapeHtml(item.kategori)}</span>
+        <time class="text-[11px] font-medium text-[#6a7282] tabular-nums">${fmtTime(item.yayin_zamani)}</time>
+      </div>
+      <span class="text-[11px] font-bold text-[#364153] bg-[#f9fafb] rounded-full px-3 py-1 self-start">${escapeHtml(LABELS[item.stablex_etiketi] || item.stablex_etiketi)}</span>
+      <h3 class="text-[15px] font-bold text-[#000] leading-snug">${escapeHtml(item.baslik_tr)}</h3>
+      <p class="text-[13.5px] font-medium text-[#364153] leading-relaxed">${escapeHtml(item.ozet_tr)}</p>
+      ${assets ? `<div class="flex flex-wrap gap-2">${assets}</div>` : ""}
+      ${marketingActionsHtml(item)}
+      <div class="pt-1">
+        <a href="${safeUrl(item.kaynak_url)}" target="_blank" rel="noopener" class="text-[13px] font-bold text-[#dc0005] hover:opacity-70 transition-opacity duration-200">
+          ${item.kaynak ? `${escapeHtml(item.kaynak)} — ` : ""}Kaynağı görüntüle →
+        </a>
+      </div>
+    `;
+    return card;
+  }
+
+  // ---------- Durum: tek doğruluk kaynağı ham veri, ekran her zaman bundan türetilir ----------
+  const coinFilterEl = document.getElementById("coinFilter");
+  const sortToggleEl = document.getElementById("sortToggle");
+  const sortToggleIconEl = document.getElementById("sortToggleIcon");
+  const sortToggleLabelEl = document.getElementById("sortToggleLabel");
+
+  let allNews = []; // ham haber nesneleri (DOM değil) — en fazla 30, her zaman güncel
+  let selectedCoin = "all";
+  let sortDescending = true; // true: en yeni üstte, false: en eski üstte
+
+  function matchesSearch(item, query) {
+    if (!query) return true;
+    const haystack = [
+      item.baslik_tr, item.ozet_tr, item.kategori, item.kaynak,
+      ...(item.ilgili_varliklar || []), LABELS[item.stablex_etiketi] || "",
+    ].join(" ").toLocaleLowerCase("tr");
+    return haystack.includes(query);
+  }
+
+  function matchesCoin(item) {
+    return selectedCoin === "all" || (item.ilgili_varliklar || []).includes(selectedCoin);
+  }
+
+  function updateCoinOptions() {
+    const coins = [...new Set(allNews.flatMap((n) => n.ilgili_varliklar || []))].sort();
+    if (selectedCoin !== "all" && !coins.includes(selectedCoin)) selectedCoin = "all";
+
+    const options = ['<option value="all">Tüm Varlıklar</option>']
+      .concat(coins.map((c) => `<option value="${escapeHtml(c)}"${c === selectedCoin ? " selected" : ""}>${escapeHtml(c)}</option>`));
+    coinFilterEl.innerHTML = options.join("");
+  }
+
+  function wireDetailsToggle(card) {
+    card.querySelectorAll("details").forEach((details) => {
+      details.addEventListener("toggle", () => {
+        const chevron = details.querySelector(".chevron");
+        chevron.style.transform = details.open ? "rotate(180deg)" : "rotate(0deg)";
+      });
+    });
+  }
+
+  // Yeniden çizimden ÖNCE açık akordeonları hatırla, ÇİZDİKTEN SONRA aynı
+  // habere ait aynı kanal akordeonunu tekrar aç — arama/filtre her tuşta
+  // tüm kartları yeniden oluşturuyor, kullanıcı bir kanalı açık bırakmışsa
+  // kapanmamalı.
+  function getOpenAccordionKeys() {
+    const keys = new Set();
+    newsFeed.querySelectorAll("article[data-id]").forEach((card) => {
+      card.querySelectorAll("details[open]").forEach((details) => {
+        keys.add(`${card.dataset.id}::${details.dataset.channel}`);
+      });
+    });
+    return keys;
+  }
+
+  function restoreOpenAccordions(keys) {
+    if (!keys.size) return;
+    newsFeed.querySelectorAll("article[data-id]").forEach((card) => {
+      card.querySelectorAll("details[data-channel]").forEach((details) => {
+        if (keys.has(`${card.dataset.id}::${details.dataset.channel}`)) {
+          details.open = true;
+          const chevron = details.querySelector(".chevron");
+          if (chevron) chevron.style.transform = "rotate(180deg)";
+        }
+      });
+    });
+  }
+
+  function renderFeed() {
+    updateCoinOptions();
+
+    const query = newsSearch.value.trim().toLocaleLowerCase("tr");
+    const items = allNews
+      .filter((item) => matchesSearch(item, query) && matchesCoin(item))
+      .sort((a, b) => {
+        const diff = new Date(a.yayin_zamani) - new Date(b.yayin_zamani);
+        return sortDescending ? -diff : diff; // KESİNLİKLE tarihe göre: yeni->eski ya da eski->yeni
+      });
+
+    const openKeys = getOpenAccordionKeys();
+    newsFeed.innerHTML = "";
+    items.forEach((item) => {
+      const card = renderNewsCard(item);
+      newsFeed.appendChild(card);
+      wireDetailsToggle(card);
+    });
+    restoreOpenAccordions(openKeys);
+    newsEmpty.classList.toggle("hidden", items.length > 0);
+  }
+
+  // Her tuş vuruşunda değil, yazma durduktan ~150ms sonra filtrele —
+  // uzun haber listelerinde her karakterde tüm DOM'u yeniden kurmak gereksiz.
+  let searchDebounceTimer = null;
+  newsSearch.addEventListener("input", () => {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(renderFeed, 150);
+  });
+  coinFilterEl.addEventListener("change", () => {
+    selectedCoin = coinFilterEl.value;
+    renderFeed();
+  });
+  sortToggleEl.addEventListener("click", () => {
+    sortDescending = !sortDescending;
+    sortToggleLabelEl.textContent = sortDescending ? "En Yeni Önce" : "En Eski Önce";
+    sortToggleIconEl.style.transform = sortDescending ? "rotate(0deg)" : "rotate(180deg)";
+    renderFeed();
+  });
+
+  function handleNews(item) {
+    allNews = allNews.filter((n) => n.id !== item.id); // aynı id tekrar gelirse (teorik) üzerine yaz
+    allNews.push(item);
+    // Ekranda hangi sırada gösterildiğinden BAĞIMSIZ olarak, sakladığımız
+    // 30 haber her zaman en YENİ 30 haber olsun diye tarihe göre kırpıyoruz.
+    allNews.sort((a, b) => new Date(b.yayin_zamani) - new Date(a.yayin_zamani));
+    allNews = allNews.slice(0, 50); // backend'in gecmis_haberler ile gönderdiği derinlikle aynı (50)
+    renderFeed();
+  }
+
+  // ---------- Geçmiş haberler (radar.db'den, bağlantı kurulur kurulmaz) ----------
+  function handleHistory(items) {
+    allNews = items.slice();
+    renderFeed();
+  }
+
+  // ---------- WebSocket bağlantısı (otomatik yeniden bağlanma ile) ----------
+  let reconnectDelay = 1000;
+
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss://" : "ws://";
+    const ws = new WebSocket(proto + location.host + "/ws");
+
+    ws.onopen = () => {
+      connectionDot.className = "w-2 h-2 rounded-full bg-[#00c758]";
+      connectionLabel.textContent = "Canlı";
+      reconnectDelay = 1000;
+    };
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.tip === "haber") handleNews(message);
+      else if (message.tip === "piyasa_verisi") handlePriceUpdate(message);
+      else if (message.tip === "gecmis_haberler") handleHistory(message.veri);
+    };
+
+    ws.onclose = () => {
+      connectionDot.className = "w-2 h-2 rounded-full bg-[#fb2c36]";
+      connectionLabel.textContent = "Bağlantı koptu, yeniden deneniyor…";
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.6, 15000);
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  connect();
+</script>
+</body>
+</html>
