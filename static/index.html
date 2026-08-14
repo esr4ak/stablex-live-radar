@@ -56,6 +56,44 @@
     </div>
   </header>
 
+  <!-- ============ PİYASA NABZI (Market Breadth) ============ -->
+  <!-- Not: bu kart TEK ve KALICI bir slot — backend'den "piyasa_krizi"
+       (aktif) geldiğinde buraya YENİ bir kart eklenmez, marketPulseCrisisView
+       görünür olup marketPulseBreadthView gizlenir (bkz. updateMarketPulseView). -->
+  <section class="max-w-7xl mx-auto px-6 sm:px-10 pt-6 sm:pt-8">
+    <div class="bg-[#fff] rounded-2xl px-6 py-4 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+      <div id="marketPulseBreadthView" class="flex-col gap-2">
+        <div class="flex items-center justify-between gap-3">
+          <span id="marketPulseLabel" class="text-[12px] font-bold text-[#364153]">Piyasa nabzı hesaplanıyor…</span>
+          <span id="marketPulseBadge" class="hidden text-[10px] font-extrabold uppercase tracking-wide text-[#fb2c36]">⚠ Geniş çaplı düşüş</span>
+        </div>
+        <div class="w-full h-1.5 rounded-full bg-[#f9fafb] overflow-hidden flex">
+          <div id="marketPulseUpBar" class="h-full bg-[#00c758] transition-all duration-500" style="width:0%"></div>
+          <div id="marketPulseDownBar" class="h-full bg-[#fb2c36] transition-all duration-500" style="width:0%"></div>
+        </div>
+      </div>
+      <div id="marketPulseCrisisView" class="flex-col gap-2">
+        <span id="marketPulseCrisisHeader" class="text-[12px] font-extrabold text-[#dc0005]">⚠ Piyasa genelinde geniş çaplı düşüş — olası nedenler</span>
+        <ul id="marketPulseCrisisList" class="flex flex-col gap-1.5"></ul>
+        <div id="marketPulseCrisisActions" class="pt-1"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ GÜNÜN YILDIZLARI (Gainers/Losers) ============ -->
+  <section class="max-w-7xl mx-auto px-6 sm:px-10 pt-6">
+    <div class="flex items-center gap-6 overflow-x-auto pb-1">
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282] shrink-0">Kazananlar</span>
+        <div id="topGainers" class="flex items-center gap-2"></div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282] shrink-0">Kaybedenler</span>
+        <div id="topLosers" class="flex items-center gap-2"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============ İKİ SÜTUNLU DÜZEN ============ -->
   <div class="max-w-7xl mx-auto px-6 sm:px-10 py-8 sm:py-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
 
@@ -86,6 +124,13 @@
           class="rounded-full border border-[#e4e4e4] bg-[#fff] pl-4 pr-3 py-2 text-sm font-bold text-[#000] focus:outline-none focus:ring-2 focus:ring-[#dc0005]/30 cursor-pointer"
         >
           <option value="all">Tüm Varlıklar</option>
+        </select>
+
+        <select
+          id="etiketFilter"
+          class="rounded-full border border-[#e4e4e4] bg-[#fff] pl-4 pr-3 py-2 text-sm font-bold text-[#000] focus:outline-none focus:ring-2 focus:ring-[#dc0005]/30 cursor-pointer"
+        >
+          <option value="all">Tüm Etiketler</option>
         </select>
 
         <button
@@ -125,18 +170,31 @@
         <div id="regulatoryLinks" class="flex flex-col gap-2"></div>
       </div>
 
-      <!-- Reddit placeholder (Faz-2) -->
-      <div class="rounded-2xl p-6 flex flex-col items-center text-center gap-3 border border-dashed border-neutral-300 bg-white/60">
-        <div class="w-10 h-10 rounded-full bg-[#f9fafb] flex items-center justify-center">
-          <svg class="w-5 h-5 text-[#6a7282]" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
-            <circle cx="10" cy="10" r="7" />
-            <path d="M6.5 11.5c1 1 2 1.4 3.5 1.4s2.5-.4 3.5-1.4" />
-            <circle cx="7.5" cy="8.5" r=".6" fill="currentColor" stroke="none" />
-            <circle cx="12.5" cy="8.5" r=".6" fill="currentColor" stroke="none" />
-          </svg>
+      <!-- İstihbarat: Rakip Kapsamı + On-Chain Olaylar + X Keşif (sekmeli) -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-4 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <h2 class="text-sm font-extrabold text-[#000]">İstihbarat</h2>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="intelTabCoverage" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">Rakip Kapsamı</button>
+          <button id="intelTabOnchain" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">On-Chain Olaylar</button>
+          <button id="intelTabXKesif" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">X Keşif</button>
         </div>
-        <h2 class="text-sm font-extrabold text-[#000]">Sosyal Medyanın Nabzı</h2>
-        <p class="text-xs font-semibold text-[#6a7282]">Yakında: Reddit Akışı</p>
+        <div id="intelPanelCoverage" class="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1"></div>
+        <div id="intelPanelOnchain" class="flex-col gap-3"></div>
+        <div id="intelPanelXKesif" class="flex-col gap-3"></div>
+      </div>
+
+      <!-- X Gönderi Akışı (talep üzerine, Grok/x_search) -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-extrabold text-[#000]">X Gönderi Akışı</h2>
+          <span class="text-[10px] font-bold uppercase tracking-wide text-[#6a7282]">X</span>
+        </div>
+        <p class="text-[11px] font-semibold text-[#6a7282]">Bir coin seç, o coin hakkındaki gerçek X gönderilerini getir.</p>
+        <div class="flex items-center gap-2">
+          <select id="xFeedCoinSelect" class="rounded-full border border-[#e4e4e4] bg-[#fff] pl-3 pr-2 py-1.5 text-[12px] font-bold text-[#000] focus:outline-none focus:ring-2 focus:ring-[#dc0005]/30 cursor-pointer"></select>
+          <button id="xFeedFetchBtn" type="button" class="rounded-full bg-[#000] text-white px-3 py-1.5 text-[11px] font-bold hover:opacity-80 transition-opacity duration-200">Getir</button>
+        </div>
+        <div id="xFeedSlider" class="flex items-stretch gap-2 overflow-x-auto pb-1 min-h-[64px]"></div>
       </div>
 
     </aside>
@@ -227,14 +285,14 @@
     const row = document.createElement("div");
     row.className = "flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors";
     row.innerHTML = `
-      <span class="text-[13px] font-extrabold text-[#000]">${symbol}</span>
+      <span class="text-[13px] font-extrabold text-[#000]">${escapeHtml(symbol)}</span>
       <span class="flex items-baseline gap-2">
         <span class="price text-[13px] font-bold text-[#000] tabular-nums">—</span>
         <span class="change text-[11px] font-bold tabular-nums text-[#6a7282] w-16 text-right">—</span>
       </span>`;
     priceList.appendChild(row);
 
-    const entry = { row, priceEl: row.querySelector(".price"), changeEl: row.querySelector(".change"), lastPrice: null };
+    const entry = { row, priceEl: row.querySelector(".price"), changeEl: row.querySelector(".change"), lastPrice: null, changePct: null };
     priceRows[symbol] = entry;
     return entry;
   }
@@ -248,6 +306,7 @@
 
       const direction = entry.lastPrice === null ? null : coin.fiyat_usd >= entry.lastPrice ? "up" : "down";
       entry.lastPrice = coin.fiyat_usd;
+      entry.changePct = coin.degisim_24s;
 
       entry.priceEl.textContent = fmtUsd(coin.fiyat_usd);
       const up = coin.degisim_24s >= 0;
@@ -260,6 +319,111 @@
         entry.row.classList.add(direction === "up" ? "animate-flash-up" : "animate-flash-down");
       }
     });
+    renderTopMovers();
+    renderMarketPulse();
+    ensureXFeedCoinOptions();
+  }
+
+  // ---------- Piyasa Nabzı (Market Breadth) — mevcut fiyat cache'inden
+  // türetilir, ekstra backend/WS yükü yok. Bar KALICI TEK BİR SLOT: backend
+  // "piyasa_krizi" (aktif) yayınladığında bu görünüm (breadth) gizlenir,
+  // marketPulseCrisisView görünür olur — yeni bir kart eklenmez. ----------
+  const MARKET_PULSE_RISK_RATIO = 0.75; // coinlerin bu oranından fazlası düşüşteyse "risk" rozetini göster
+  let marketCrisisActive = false;
+
+  function renderMarketPulseBreadth() {
+    const entries = Object.values(priceRows).filter((e) => typeof e.changePct === "number");
+    const labelEl = document.getElementById("marketPulseLabel");
+    const badgeEl = document.getElementById("marketPulseBadge");
+    const upBarEl = document.getElementById("marketPulseUpBar");
+    const downBarEl = document.getElementById("marketPulseDownBar");
+
+    if (!entries.length) {
+      labelEl.textContent = "Piyasa nabzı hesaplanıyor…";
+      badgeEl.classList.add("hidden");
+      upBarEl.style.width = "0%";
+      downBarEl.style.width = "0%";
+      return;
+    }
+
+    const total = entries.length;
+    const upCount = entries.filter((e) => e.changePct >= 0).length;
+    const downCount = total - upCount;
+    const upPct = (upCount / total) * 100;
+
+    labelEl.textContent = `${upCount}/${total} coin yükselişte (%${upPct.toFixed(0)}) — ${downCount}/${total} düşüşte`;
+    upBarEl.style.width = upPct + "%";
+    downBarEl.style.width = (100 - upPct) + "%";
+    badgeEl.classList.toggle("hidden", downCount / total < MARKET_PULSE_RISK_RATIO);
+  }
+
+  function renderMarketCrisis(payload) {
+    const maddeler = payload.maddeler || [];
+    const headerEl = document.getElementById("marketPulseCrisisHeader");
+    const oranText = typeof payload.dusen_oran === "number" ? ` (coinlerin %${Math.round(payload.dusen_oran * 100)}'i düşüşte)` : "";
+    headerEl.textContent = `⚠ Piyasa genelinde geniş çaplı düşüş${oranText} — olası nedenler`;
+
+    const listEl = document.getElementById("marketPulseCrisisList");
+    listEl.innerHTML = maddeler.length
+      ? maddeler.map((m) => `
+          <li class="text-[12px] font-medium text-[#364153] flex items-start gap-2">
+            <span class="text-[#dc0005] font-bold">•</span><span>${escapeHtml(m)}</span>
+          </li>`).join("")
+      : `<li class="text-[12px] font-medium text-[#6a7282]">Piyasa genelinde düşüş gözlemleniyor, kesin bir neden şu an tespit edilemedi.</li>`;
+
+    // Kriz iletişim taslakları (push/e-posta) — mevcut haber kartlarındaki
+    // aynı accordion bileşenini (marketingActionsHtml) yeniden kullanıyoruz,
+    // tek fark girdinin tek bir habere değil sentez metnine dayanması.
+    const actionsEl = document.getElementById("marketPulseCrisisActions");
+    const icerikOnerisi = payload.icerik_onerisi || {};
+    const kanallar = Object.keys(icerikOnerisi);
+    if (kanallar.length) {
+      actionsEl.innerHTML = marketingActionsHtml({ onerilen_kanallar: kanallar, icerik_onerisi: icerikOnerisi });
+      wireDetailsToggle(actionsEl);
+      wireCopyButtons(actionsEl);
+    } else {
+      actionsEl.innerHTML = "";
+    }
+  }
+
+  function updateMarketPulseView() {
+    document.getElementById("marketPulseBreadthView").style.display = marketCrisisActive ? "none" : "flex";
+    document.getElementById("marketPulseCrisisView").style.display = marketCrisisActive ? "flex" : "none";
+  }
+
+  function handleMarketCrisis(payload) {
+    marketCrisisActive = !!payload.aktif;
+    if (marketCrisisActive) renderMarketCrisis(payload);
+    updateMarketPulseView();
+  }
+
+  function renderMarketPulse() {
+    renderMarketPulseBreadth(); // krizin bittiği an gösterime hazır olsun diye breadth her zaman hesaplanır
+  }
+
+  // ---------- Günün Yıldızları: mevcut fiyat cache'inden türetilir,
+  // ekstra backend/WS yükü yok. ----------
+  function moverChipHtml(symbol, changePct) {
+    const up = changePct >= 0;
+    return `<div class="flex items-center gap-1.5 rounded-full bg-[#fff] px-3 py-1.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)] shrink-0">
+      <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(symbol)}</span>
+      <span class="text-[11px] font-bold tabular-nums ${up ? "text-[#00c758]" : "text-[#fb2c36]"}">${up ? "▲" : "▼"} ${Math.abs(changePct).toFixed(2)}%</span>
+    </div>`;
+  }
+
+  function renderTopMovers() {
+    const entries = Object.entries(priceRows)
+      .filter(([, e]) => typeof e.changePct === "number")
+      .map(([symbol, e]) => ({ symbol, changePct: e.changePct }));
+
+    const gainers = [...entries].sort((a, b) => b.changePct - a.changePct).slice(0, 5);
+    const losers = [...entries].sort((a, b) => a.changePct - b.changePct).slice(0, 5);
+    const placeholder = `<span class="text-[11px] font-semibold text-[#6a7282]">Veri bekleniyor…</span>`;
+
+    document.getElementById("topGainers").innerHTML =
+      gainers.length ? gainers.map((m) => moverChipHtml(m.symbol, m.changePct)).join("") : placeholder;
+    document.getElementById("topLosers").innerHTML =
+      losers.length ? losers.map((m) => moverChipHtml(m.symbol, m.changePct)).join("") : placeholder;
   }
 
   function formatSuggestion(text) {
@@ -269,16 +433,41 @@
   function marketingActionsHtml(item) {
     const channels = item.onerilen_kanallar || [];
     if (!channels.length) return "";
-    const details = channels.map((ch) => `
+    const details = channels.map((ch) => {
+      const raw = item.icerik_onerisi[ch] || "";
+      return `
       <details class="rounded-lg bg-[#f9fafb] px-3" data-channel="${escapeHtml(ch)}">
         <summary class="list-none cursor-pointer flex items-center justify-between gap-2 py-2 text-[12px] font-extrabold text-[#000]">
           ${escapeHtml(CHANNEL_LABELS[ch] || ch)}
           <span class="chevron text-[#6a7282] transition-transform duration-200 text-[10px]">▾</span>
         </summary>
-        <p class="pb-3 text-[13px] text-[#364153] leading-relaxed whitespace-pre-line">${formatSuggestion(item.icerik_onerisi[ch])}</p>
-      </details>`).join("");
+        <div class="pb-3 flex flex-col gap-2">
+          <p class="text-[13px] text-[#364153] leading-relaxed whitespace-pre-line">${formatSuggestion(raw)}</p>
+          <button type="button" class="copy-suggestion-btn self-start text-[11px] font-bold text-[#dc0005] hover:opacity-70 transition-opacity duration-200" data-copy-text="${escapeHtml(raw)}">Kopyala</button>
+        </div>
+      </details>`;
+    }).join("");
 
     return `<div class="flex flex-wrap gap-2">${details}</div>`;
+  }
+
+  // Kopyala butonları — pazarlama ekibi ham taslak metnini (HTML kalın
+  // etiketleme olmadan) tek tıkla panoya alabilsin diye. wireDetailsToggle
+  // gibi, marketingActionsHtml innerHTML olarak eklendikten SONRA çağrılmalı.
+  function wireCopyButtons(container) {
+    container.querySelectorAll(".copy-suggestion-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(btn.dataset.copyText || "");
+          const original = btn.textContent;
+          btn.textContent = "Kopyalandı ✓";
+          setTimeout(() => { btn.textContent = original; }, 1500);
+        } catch {
+          btn.textContent = "Kopyalanamadı";
+          setTimeout(() => { btn.textContent = "Kopyala"; }, 1500);
+        }
+      });
+    });
   }
 
   function fmtTime(iso) {
@@ -292,13 +481,25 @@
       .map((a) => `<span class="text-[11px] font-bold tabular-nums text-[#364153] bg-[#f9fafb] rounded-md px-2 py-1">${escapeHtml(a)}</span>`)
       .join("");
 
+    // Aksiyon göstergesi: içerik önerisi (push/email/blog/sosyal) olan
+    // kartları, header'daki STABLEX noktasıyla aynı görsel dilde küçük bir
+    // noktayla işaretler — ekip taramada "hangi haberde aksiyon alınabilir
+    // bir öneri var" sorusunu okumadan, tek bakışta ayırt edebilsin diye.
+    const hasActions = (item.onerilen_kanallar || []).length > 0;
+    const actionDot = hasActions
+      ? `<span class="w-1.5 h-1.5 rounded-full bg-[#dc0005]" title="İçerik önerisi mevcut"></span>`
+      : "";
+
     const card = document.createElement("article");
     card.className = "bg-[#fff] rounded-2xl p-6 flex flex-col gap-4 opacity-0 animate-fade-in shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]";
     card.dataset.id = item.id;
 
     card.innerHTML = `
       <div class="flex items-center justify-between gap-3">
-        <span class="text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282]">${escapeHtml(item.kategori)}</span>
+        <span class="flex items-center gap-1.5">
+          <span class="text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282]">${escapeHtml(item.kategori)}</span>
+          ${actionDot}
+        </span>
         <time class="text-[11px] font-medium text-[#6a7282] tabular-nums">${fmtTime(item.yayin_zamani)}</time>
       </div>
       <span class="text-[11px] font-bold text-[#364153] bg-[#f9fafb] rounded-full px-3 py-1 self-start">${escapeHtml(LABELS[item.stablex_etiketi] || item.stablex_etiketi)}</span>
@@ -317,13 +518,22 @@
 
   // ---------- Durum: tek doğruluk kaynağı ham veri, ekran her zaman bundan türetilir ----------
   const coinFilterEl = document.getElementById("coinFilter");
+  const etiketFilterEl = document.getElementById("etiketFilter");
   const sortToggleEl = document.getElementById("sortToggle");
   const sortToggleIconEl = document.getElementById("sortToggleIcon");
   const sortToggleLabelEl = document.getElementById("sortToggleLabel");
 
   let allNews = []; // ham haber nesneleri (DOM değil) — en fazla 30, her zaman güncel
   let selectedCoin = "all";
+  let selectedEtiket = "all";
   let sortDescending = true; // true: en yeni üstte, false: en eski üstte
+
+  // Etiket seçenekleri LABELS'ten sabit türetilir (Gemini'nin ürettiği
+  // stablex_etiketi değerleri zaten bu sabit kümeden — coin listesi gibi
+  // habere göre dinamik değil, bu yüzden bir kere doldurulması yeterli).
+  etiketFilterEl.innerHTML = ['<option value="all">Tüm Etiketler</option>']
+    .concat(Object.entries(LABELS).map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`))
+    .join("");
 
   function matchesSearch(item, query) {
     if (!query) return true;
@@ -336,6 +546,10 @@
 
   function matchesCoin(item) {
     return selectedCoin === "all" || (item.ilgili_varliklar || []).includes(selectedCoin);
+  }
+
+  function matchesEtiket(item) {
+    return selectedEtiket === "all" || item.stablex_etiketi === selectedEtiket;
   }
 
   function updateCoinOptions() {
@@ -388,7 +602,7 @@
 
     const query = newsSearch.value.trim().toLocaleLowerCase("tr");
     const items = allNews
-      .filter((item) => matchesSearch(item, query) && matchesCoin(item))
+      .filter((item) => matchesSearch(item, query) && matchesCoin(item) && matchesEtiket(item))
       .sort((a, b) => {
         const diff = new Date(a.yayin_zamani) - new Date(b.yayin_zamani);
         return sortDescending ? -diff : diff; // KESİNLİKLE tarihe göre: yeni->eski ya da eski->yeni
@@ -400,6 +614,7 @@
       const card = renderNewsCard(item);
       newsFeed.appendChild(card);
       wireDetailsToggle(card);
+      wireCopyButtons(card);
     });
     restoreOpenAccordions(openKeys);
     newsEmpty.classList.toggle("hidden", items.length > 0);
@@ -414,6 +629,10 @@
   });
   coinFilterEl.addEventListener("change", () => {
     selectedCoin = coinFilterEl.value;
+    renderFeed();
+  });
+  etiketFilterEl.addEventListener("change", () => {
+    selectedEtiket = etiketFilterEl.value;
     renderFeed();
   });
   sortToggleEl.addEventListener("click", () => {
@@ -434,10 +653,269 @@
   }
 
   // ---------- Geçmiş haberler (radar.db'den, bağlantı kurulur kurulmaz) ----------
+  // ÜZERİNE YAZMA yerine BİRLEŞTİR: manager.connect() WS'i "active" listesine
+  // history gönderilmeden ÖNCE eklediği için, nadir bir yarış durumunda bir
+  // canlı "haber" mesajı history'den önce gelebilir — allNews'u tamamen
+  // değiştirmek o haberi sessizce kaybederdi.
   function handleHistory(items) {
-    allNews = items.slice();
+    const historyIds = new Set(items.map((i) => i.id));
+    const liveOnly = allNews.filter((n) => !historyIds.has(n.id)); // history'den önce gelmiş olabilecek canlı haberler
+    allNews = items.concat(liveOnly)
+      .sort((a, b) => new Date(b.yayin_zamani) - new Date(a.yayin_zamani))
+      .slice(0, 50);
     renderFeed();
   }
+
+  // ---------- İstihbarat: Rakip Kapsamı + On-Chain Olaylar + X Keşif ----------
+  const intelTabCoverage = document.getElementById("intelTabCoverage");
+  const intelTabOnchain = document.getElementById("intelTabOnchain");
+  const intelTabXKesif = document.getElementById("intelTabXKesif");
+  const intelPanelCoverage = document.getElementById("intelPanelCoverage");
+  const intelPanelOnchain = document.getElementById("intelPanelOnchain");
+  const intelPanelXKesif = document.getElementById("intelPanelXKesif");
+  let competitorCoverage = [];
+
+  function fmtDate(iso) {
+    return new Date(iso).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  function renderCompetitorCoverage() {
+    if (!competitorCoverage.length) {
+      intelPanelCoverage.innerHTML = `<p class="text-xs font-semibold text-[#6a7282] text-center py-4">Henüz fark tespit edilmedi.</p>`;
+      return;
+    }
+    intelPanelCoverage.innerHTML = competitorCoverage.map((item) => `
+      <div class="flex items-center justify-between gap-3 rounded-lg bg-[#f9fafb] px-3 py-2">
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(item.coin)}</span>
+          <span class="text-[10px] font-bold text-[#6a7282]">${escapeHtml(item.rakip)}</span>
+        </div>
+        <span class="text-[10px] font-medium text-[#6a7282] tabular-nums">${fmtDate(item.ilk_gorulme)}</span>
+      </div>`).join("");
+  }
+
+  function handleCompetitorCoverage(items) {
+    competitorCoverage = items.slice();
+    renderCompetitorCoverage();
+  }
+
+  function setIntelTab(tab) {
+    const activeCls = "rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200 bg-[#000] text-white";
+    const inactiveCls = "rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200 bg-[#f9fafb] text-[#6a7282]";
+    intelTabCoverage.className = tab === "coverage" ? activeCls : inactiveCls;
+    intelTabOnchain.className = tab === "onchain" ? activeCls : inactiveCls;
+    intelTabXKesif.className = tab === "xkesif" ? activeCls : inactiveCls;
+    intelPanelCoverage.style.display = tab === "coverage" ? "flex" : "none";
+    intelPanelOnchain.style.display = tab === "onchain" ? "flex" : "none";
+    intelPanelXKesif.style.display = tab === "xkesif" ? "flex" : "none";
+  }
+
+  intelTabCoverage.addEventListener("click", () => setIntelTab("coverage"));
+  intelTabOnchain.addEventListener("click", () => setIntelTab("onchain"));
+  intelTabXKesif.addEventListener("click", () => setIntelTab("xkesif"));
+  setIntelTab("coverage");
+  renderCompetitorCoverage();
+
+  // ---------- X Keşif: Stablex'te olmayan trend ticker'lar + rakip X sentiment'i ----------
+  function renderXKesif(veri) {
+    const trendCoinler = veri?.trend_coinler || [];
+    const rakipSentiment = veri?.rakip_sentiment || {};
+    const parts = [];
+
+    parts.push('<p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282]">Stablex\'te Olmayan Trend Coinler</p>');
+    if (trendCoinler.length) {
+      parts.push(`<div class="flex flex-col gap-1.5">${trendCoinler.map((item) => `
+        <div class="flex items-center justify-between gap-3 rounded-lg bg-[#f9fafb] px-3 py-2">
+          <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(item.ticker)}</span>
+          <span class="text-[10px] font-medium text-[#6a7282] tabular-nums">${fmtDate(item.ilk_gorulme)}</span>
+        </div>`).join("")}</div>`);
+    } else {
+      parts.push('<p class="text-xs font-semibold text-[#6a7282]">Henüz fark tespit edilmedi.</p>');
+    }
+
+    const rakipEntries = Object.entries(rakipSentiment);
+    if (rakipEntries.length) {
+      parts.push('<p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282] pt-1">Rakip Borsa X Sentiment\'i</p>');
+      parts.push(`<div class="flex flex-col gap-1.5">${rakipEntries.map(([rakip, s]) => {
+        const yonCls = s.yon === "olumlu" ? "text-[#00c758]" : s.yon === "olumsuz" ? "text-[#fb2c36]" : "text-[#6a7282]";
+        const kaynakLink = s.kaynak_url
+          ? `<a href="${safeUrl(s.kaynak_url)}" target="_blank" rel="noopener" class="text-[10px] font-bold text-[#dc0005] hover:opacity-70 transition-opacity duration-200">Kaynağı gör →</a>`
+          : "";
+        return `
+        <div class="rounded-lg bg-[#f9fafb] px-3 py-2 flex flex-col gap-1">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(rakip)}</span>
+            <span class="text-[10px] font-bold ${yonCls}">${escapeHtml(SENTIMENT_YON_LABEL[s.yon] || "")}</span>
+          </div>
+          <p class="text-[11px] font-medium text-[#364153]">${escapeHtml(s.ozet || "")}</p>
+          ${kaynakLink}
+        </div>`;
+      }).join("")}</div>`);
+    }
+
+    intelPanelXKesif.innerHTML = parts.join("");
+  }
+
+  function handleXKesif(veri) {
+    renderXKesif(veri);
+  }
+
+  renderXKesif(null);
+
+  // ---------- X Gönderi Akışı (talep üzerine, tek coin, Grok/x_search) ----------
+  // Şeffaflık: her gönderi kendi gerçek X linkini taşır (haber
+  // kartlarındaki "Kaynağı görüntüle" ile aynı mantık) — özet/skor değil,
+  // doğrudan doğrulanabilir ham veri. Saatlik toplu tarama modeli
+  // denenmişti ama büyük batch'lerde yavaşlık/güvenilirlik sorunu
+  // çıkardığı için talep-üzerine/tek-coin modeline geçildi (bkz. main.py).
+  const SENTIMENT_YON_LABEL = { olumlu: "Olumlu", olumsuz: "Olumsuz", notr: "Nötr" };
+  const xFeedCoinSelect = document.getElementById("xFeedCoinSelect");
+  const xFeedFetchBtn = document.getElementById("xFeedFetchBtn");
+  const xFeedSliderEl = document.getElementById("xFeedSlider");
+  let xFeedCoinOptionsReady = false;
+
+  function ensureXFeedCoinOptions() {
+    if (xFeedCoinOptionsReady) return;
+    const symbols = Object.keys(priceRows).sort();
+    if (!symbols.length) return;
+    xFeedCoinSelect.innerHTML = symbols.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+    xFeedCoinOptionsReady = true;
+  }
+
+  function xFeedInitial(yazar) {
+    const clean = (yazar || "").replace(/^@/, "");
+    return (clean[0] || "?").toUpperCase();
+  }
+
+  function xFeedPlaceholder(text, isError) {
+    xFeedSliderEl.innerHTML = `
+      <div class="flex items-center w-full">
+        <span class="text-[11px] font-semibold ${isError ? "text-[#fb2c36]" : "text-[#6a7282]"}">${escapeHtml(text)}</span>
+      </div>`;
+  }
+
+  function renderXFeedSkeleton() {
+    // Marka renk kuralına uygun (siyah/beyaz/kırmızı/gri dışında renk yok)
+    // sade, monokrom bir "pulse" iskeleti — asıl kartlar gelene kadar
+    // slider'ın aniden boşalıp dolmasını yumuşatır.
+    xFeedSliderEl.innerHTML = Array.from({ length: 3 }, () => `
+      <div class="shrink-0 w-56 h-40 rounded-xl border border-[#e4e4e4] bg-[#fff] p-3 flex flex-col gap-2 animate-pulse">
+        <div class="flex items-center gap-2">
+          <span class="w-6 h-6 rounded-full bg-[#e4e4e4] shrink-0"></span>
+          <span class="w-20 h-2.5 rounded bg-[#e4e4e4]"></span>
+        </div>
+        <span class="w-full h-2.5 rounded bg-[#e4e4e4]"></span>
+        <span class="w-full h-2.5 rounded bg-[#e4e4e4]"></span>
+        <span class="w-2/3 h-2.5 rounded bg-[#e4e4e4]"></span>
+      </div>`).join("");
+  }
+
+  function renderXFeed(posts) {
+    if (!posts || !posts.length) {
+      xFeedPlaceholder("Gönderi bulunamadı.");
+      return;
+    }
+    xFeedSliderEl.innerHTML = posts.map((p) => `
+      <a href="${safeUrl(p.url)}" target="_blank" rel="noopener"
+         class="shrink-0 w-56 h-40 rounded-xl border border-[#e4e4e4] bg-[#fff] p-3 flex flex-col gap-2
+                hover:border-[#dc0005] hover:shadow-[0_4px_16px_-4px_rgba(16,24,40,0.12)] transition-all duration-200">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="w-6 h-6 rounded-full bg-[#000] text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">${escapeHtml(xFeedInitial(p.yazar))}</span>
+          <span class="text-[11px] font-extrabold text-[#000] truncate">${escapeHtml(p.yazar || "")}</span>
+        </div>
+        <p class="text-[11px] text-[#364153] leading-snug line-clamp-4 flex-1">${escapeHtml(p.metin || "")}</p>
+        <div class="flex items-center gap-3 text-[10px] font-bold text-[#6a7282] tabular-nums">
+          <span>♥ ${p.begeni || 0}</span>
+          <span>↺ ${p.repost || 0}</span>
+          <span>💬 ${p.yanit || 0}</span>
+        </div>
+      </a>`).join("");
+  }
+
+  async function fetchXFeed(symbol) {
+    xFeedFetchBtn.disabled = true;
+    xFeedFetchBtn.classList.add("opacity-50", "cursor-not-allowed");
+    renderXFeedSkeleton();
+    try {
+      const res = await fetch(`/api/x-feed?sembol=${encodeURIComponent(symbol)}`);
+      const data = await res.json();
+      renderXFeed(data.gonderiler);
+    } catch {
+      xFeedPlaceholder("Yüklenemedi, tekrar dene.", true);
+    } finally {
+      xFeedFetchBtn.disabled = false;
+      xFeedFetchBtn.classList.remove("opacity-50", "cursor-not-allowed");
+    }
+  }
+
+  xFeedFetchBtn.addEventListener("click", () => {
+    const symbol = xFeedCoinSelect.value;
+    if (symbol) fetchXFeed(symbol);
+  });
+
+  xFeedPlaceholder("Bir coin seçip “Getir”e tıkla.");
+
+  // ---------- On-Chain Olaylar (DefiLlama: USDT arz mint/burn + zincir TVL) ----------
+  function fmtUsdCompact(v) {
+    if (v >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+    if (v >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+    return "$" + v.toLocaleString("en-US");
+  }
+
+  function stablecoinCardHtml(sc) {
+    const dirLabel = sc.yon === "mint" ? "Arz artışı (mint)" : sc.yon === "burn" ? "Arz azalışı (burn)" : "Değişim yok";
+    const dirCls = sc.yon === "mint" ? "text-[#00c758]" : sc.yon === "burn" ? "text-[#fb2c36]" : "text-[#6a7282]";
+    const change = sc.degisim_24s_yuzde;
+    const changeSign = change >= 0 ? "+" : "";
+    return `
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(sc.sembol)} Küresel Arz</span>
+        <span class="text-[11px] font-bold tabular-nums text-[#364153]">${fmtUsdCompact(sc.dolasimdaki_arz_usd)}</span>
+      </div>
+      <div class="flex items-center justify-between gap-3 rounded-lg bg-[#f9fafb] px-3 py-2">
+        <span class="text-[11px] font-bold ${dirCls}">${dirLabel}</span>
+        <span class="text-[11px] font-bold tabular-nums ${dirCls}">${changeSign}${change.toFixed(2)}% (24s)</span>
+      </div>
+      <p class="text-[10px] font-medium text-[#6a7282]">7g değişim: ${sc.degisim_7g_yuzde >= 0 ? "+" : ""}${sc.degisim_7g_yuzde.toFixed(2)}% — büyük bir mint borsalara yeni likidite girişine, büyük bir burn likidite çıkışına işaret edebilir.</p>`;
+  }
+
+  function chainTvlRowHtml(chain) {
+    const dirCls = chain.yon === "artis" ? "text-[#00c758]" : chain.yon === "azalis" ? "text-[#fb2c36]" : "text-[#6a7282]";
+    const change = chain.degisim_24s_yuzde;
+    const changeSign = change >= 0 ? "+" : "";
+    return `
+      <div class="flex items-center justify-between gap-3 rounded-lg bg-[#f9fafb] px-3 py-2">
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(chain.sembol)}</span>
+          <span class="text-[10px] font-bold text-[#6a7282]">TVL</span>
+        </div>
+        <span class="flex items-center gap-2">
+          <span class="text-[11px] font-bold tabular-nums text-[#364153]">${fmtUsdCompact(chain.tvl_usd)}</span>
+          <span class="text-[11px] font-bold tabular-nums ${dirCls}">${changeSign}${change.toFixed(2)}%</span>
+        </span>
+      </div>`;
+  }
+
+  function renderOnchain(snapshot) {
+    if (!snapshot || (!snapshot.stablecoin && !snapshot.zincirler?.length)) {
+      intelPanelOnchain.innerHTML = `<p class="text-xs font-semibold text-[#6a7282] text-center py-4">Henüz veri yok.</p>`;
+      return;
+    }
+    const parts = [];
+    if (snapshot.stablecoin) parts.push(stablecoinCardHtml(snapshot.stablecoin));
+    if (snapshot.zincirler?.length) {
+      parts.push(`
+        <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282]">Zincir TVL (24s değişim)</p>
+        <div class="flex flex-col gap-1.5">${snapshot.zincirler.map(chainTvlRowHtml).join("")}</div>`);
+    }
+    intelPanelOnchain.innerHTML = parts.join("");
+  }
+
+  function handleOnchain(snapshot) {
+    renderOnchain(snapshot);
+  }
+
+  renderOnchain(null);
 
   // ---------- WebSocket bağlantısı (otomatik yeniden bağlanma ile) ----------
   let reconnectDelay = 1000;
@@ -457,6 +935,10 @@
       if (message.tip === "haber") handleNews(message);
       else if (message.tip === "piyasa_verisi") handlePriceUpdate(message);
       else if (message.tip === "gecmis_haberler") handleHistory(message.veri);
+      else if (message.tip === "rakip_kapsami") handleCompetitorCoverage(message.veri);
+      else if (message.tip === "onchain") handleOnchain(message.veri);
+      else if (message.tip === "piyasa_krizi") handleMarketCrisis(message.veri);
+      else if (message.tip === "x_kesif") handleXKesif(message.veri);
     };
 
     ws.onclose = () => {
@@ -469,6 +951,9 @@
     ws.onerror = () => ws.close();
   }
 
+  renderTopMovers(); // ilk yükte "Veri bekleniyor…" göster, ilk piyasa_verisi gelene kadar
+  renderMarketPulse();
+  updateMarketPulseView(); // ilk yükte breadth görünümü görünür, kriz görünümü gizli
   connect();
 </script>
 </body>
