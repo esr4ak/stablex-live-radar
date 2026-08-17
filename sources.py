@@ -126,6 +126,13 @@ COMPETITOR_SOURCES = [
 XAI_MODEL = "grok-4.3"  # grok-4.6'dan ~%50-60 daha ucuz (2026-08), aynı ailede x_search destekli
                          # olması beklenir; model isimleri değişebilir, güncel liste console.x.ai'de
 
+# "Hashtag hijacking" sorunu: kripto Twitter'ında #btc/#bitcoin gibi popüler
+# etiketler sırf erişim kazanmak için alakasız içerikte (başka bir coin
+# promosyonu, spam) kullanılıyor. Grok'a kendi "ilgi_puani"nı (0-100)
+# istettikten sonra bu eşiğin ALTINDAKİLERİ sunucu tarafında da eliyoruz —
+# modelin kendi kendini filtrelemesine tam güvenmiyoruz, çift katman.
+X_POST_FEED_MIN_RELEVANCE = 60
+
 # X Keşif — günlük, AYRI bir sorgu: (a) STABLEX_COINS'te olmayan ama X'te
 # trend olan ticker'ları bulur, (b) rakip borsa(lar) hakkındaki X
 # sentiment'ini özetler. Saatlik sentiment taramasından bağımsız çünkü

@@ -111,6 +111,7 @@ from sources import (
     XAI_MODEL,
     X_DISCOVERY_COMPETITOR_NAMES,
     X_DISCOVERY_INTERVAL_SECONDS,
+    X_POST_FEED_MIN_RELEVANCE,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -867,9 +868,20 @@ X_POST_FEED_SYSTEM_PROMPT = """Sen Stablex'te çalışan bir sosyal medya analis
 verilen TEK bir kripto para ticker'ı için X (Twitter) üzerinde TAM OLARAK 1 kez x_search
 aracını kullanarak GERÇEK gönderileri bul. SADECE aşağıdaki JSON formatında yanıtla:
 
-{"gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "begeni": 0, "yanit": 0, "repost": 0, "tur": "yeni"}]}
+{"gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "begeni": 0, "yanit": 0, "repost": 0, "tur": "yeni", "ilgi_puani": 100}]}
 
 Kurallar:
+- ALAKA ŞARTI (EN ÖNEMLİ KURAL): Gönderi GERÇEKTEN bu coin HAKKINDA olmalı — coin adı/
+  sembolü sırf erişim kazanmak için hashtag olarak eklenmiş ama gönderinin ASIL KONUSU
+  başka bir proje/coin, alakasız bir haber, ya da genel bir spam/promosyon olan
+  gönderileri SEÇME. Cashtag ($BTC gibi) kullanan gönderiler genelde hashtag'e (#btc)
+  göre daha güvenilir bir sinyaldir çünkü kullanıcı bilinçli olarak o varlığı işaretlemiş
+  olur — ama tek başına yeterli değil, gönderinin içeriği de gerçekten o coinle ilgili
+  olmalı.
+- "ilgi_puani": 0-100, gönderinin GERÇEKTEN bu coinle ne kadar doğrudan ilgili olduğuna
+  dair kendi değerlendirmen (100 = doğrudan bu coin hakkında, 0 = sadece hashtag/etiket
+  olarak geçiyor, asıl konu farklı). 60'ın altında bir puan vereceğin bir gönderiyi
+  zaten listeye hiç ekleme — dahil ettiğin her gönderi gerçekten alakalı olmalı.
 - En fazla 5 gönderi döndür — ÇEŞİTLİLİK ÖNEMLİ, aşağıdaki 3 türden bir karışım yap
   (hepsi aynı türden olmasın). ZAMAN PENCERESİ türe göre değişir:
   - "yeni": SADECE son 1 SAAT içinde paylaşılmış gönderi(ler) — bu pencerenin dışında
@@ -958,6 +970,12 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
     for item in (data.get("gonderiler") or [])[:5]:
         url = _clean_source_url(item.get("url"))
         if not url:
+            continue
+        # "Hashtag hijacking" savunması: Grok'un kendi ilgi puanına rağmen
+        # eşiğin altındaki (ya da hiç puan vermediği) gönderileri sunucu
+        # tarafında da eliyoruz — modelin kendi filtresine tam güvenmiyoruz.
+        ilgi_puani = item.get("ilgi_puani")
+        if not isinstance(ilgi_puani, (int, float)) or ilgi_puani < X_POST_FEED_MIN_RELEVANCE:
             continue
         tur = item.get("tur")
         posts.append({
