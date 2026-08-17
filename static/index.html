@@ -179,6 +179,7 @@
           <button id="xFeedRegionTr" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">🇹🇷 Türkiye</button>
           <button id="xFeedFetchBtn" type="button" class="rounded-full bg-[#000] text-white px-3 py-1.5 text-[11px] font-bold hover:opacity-80 transition-opacity duration-200">Getir</button>
         </div>
+        <div id="xFeedSummary" class="hidden rounded-xl bg-[#f9fafb] px-3 py-2 flex items-start gap-2"></div>
         <div id="xFeedSlider" class="flex items-stretch gap-2 overflow-x-auto pb-1 min-h-[64px]"></div>
         <p id="xFeedMeta" class="text-[10px] font-semibold text-[#6a7282]"></p>
       </div>
@@ -768,6 +769,7 @@
   const xFeedCoinSelect = document.getElementById("xFeedCoinSelect");
   const xFeedFetchBtn = document.getElementById("xFeedFetchBtn");
   const xFeedSliderEl = document.getElementById("xFeedSlider");
+  const xFeedSummaryEl = document.getElementById("xFeedSummary");
   const xFeedMetaEl = document.getElementById("xFeedMeta");
   const xFeedRegionGlobal = document.getElementById("xFeedRegionGlobal");
   const xFeedRegionTr = document.getElementById("xFeedRegionTr");
@@ -802,6 +804,31 @@
     xFeedSliderEl.innerHTML = `
       <div class="flex items-center w-full">
         <span class="text-[11px] font-semibold ${isError ? "text-[#fb2c36]" : "text-[#6a7282]"}">${escapeHtml(text)}</span>
+      </div>`;
+    xFeedSummaryEl.classList.add("hidden");
+    xFeedSummaryEl.innerHTML = "";
+  }
+
+  // Marketing ekibi tek tek gönderi okumadan "bugün hava nasıl" diye
+  // sorabilsin diye — genel_yon/genel_ozet aynı API çağrısından geliyor,
+  // ek maliyeti yok. "buzz" gerçek X hacmini iddia etmiyor, sadece bizim
+  // bulduğumuz gönderi sayısına göre kaba bir gündem göstergesi.
+  const X_FEED_YON_ICON = { olumlu: "📈", olumsuz: "📉", notr: "➖" };
+  const X_FEED_BUZZ_LABEL = { yuksek: "🔥 Yüksek gündem", orta: "Orta gündem", dusuk: "Düşük gündem", yok: "" };
+
+  function renderXFeedSummary(data) {
+    if (!data.gonderiler || !data.gonderiler.length || !data.genel_ozet) {
+      xFeedSummaryEl.classList.add("hidden");
+      xFeedSummaryEl.innerHTML = "";
+      return;
+    }
+    const buzzLabel = X_FEED_BUZZ_LABEL[data.buzz] || "";
+    xFeedSummaryEl.classList.remove("hidden");
+    xFeedSummaryEl.innerHTML = `
+      <span class="text-base leading-none shrink-0">${X_FEED_YON_ICON[data.genel_yon] || "➖"}</span>
+      <div class="flex flex-col gap-0.5 min-w-0">
+        <p class="text-[11px] font-bold text-[#000] leading-snug">${escapeHtml(data.genel_ozet)}</p>
+        ${buzzLabel ? `<span class="text-[9px] font-bold uppercase tracking-wide text-[#6a7282]">${escapeHtml(buzzLabel)}</span>` : ""}
       </div>`;
   }
 
@@ -841,6 +868,7 @@
           <div class="flex items-center gap-2 min-w-0">
             <span class="w-6 h-6 rounded-full bg-[#000] text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">${escapeHtml(xFeedInitial(p.yazar))}</span>
             <span class="text-[11px] font-extrabold text-[#000] truncate">${escapeHtml(p.yazar || "")}</span>
+            ${p.onemli_hesap ? `<span title="Etkili/tanınmış hesap — marketing için outreach adayı" class="text-[10px] shrink-0">⭐</span>` : ""}
           </div>
           <span class="text-[9px] font-bold shrink-0 ${turCls}">${escapeHtml(X_FEED_TUR_LABEL[p.tur] || "")}</span>
         </div>
@@ -853,11 +881,13 @@
     xFeedFetchBtn.disabled = true;
     xFeedFetchBtn.classList.add("opacity-50", "cursor-not-allowed");
     xFeedMetaEl.textContent = "";
+    xFeedSummaryEl.classList.add("hidden");
     renderXFeedSkeleton();
     try {
       const res = await fetch(`/api/x-feed?sembol=${encodeURIComponent(symbol)}&bolge=${xFeedRegion}`);
       const data = await res.json();
       renderXFeed(data.gonderiler);
+      renderXFeedSummary(data);
       // Önbellekten geldiyse belirt — ekip "neden bu kadar hızlı geldi,
       // gerçekten sorgulandı mı" diye merak etmesin diye şeffaf bırakıyoruz.
       xFeedMetaEl.textContent = data.onbellek ? "Önbellekten gösteriliyor (son 15 dk içindeki sonuç)." : "";

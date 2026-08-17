@@ -880,7 +880,7 @@ kelime kombinasyonuyla (ör. cashtag yerine proje adı, ya da tersi) EN FAZLA 1 
 arama yapabilirsin — toplam en fazla 2 x_search çağrısı. SADECE aşağıdaki JSON formatında
 yanıtla:
 
-{"gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "tur": "yeni", "ilgi_puani": 100}]}
+{"genel_yon": "olumlu", "genel_ozet": "...", "gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "tur": "yeni", "ilgi_puani": 100, "onemli_hesap": false}]}
 
 Kurallar:
 - ALAKA ŞARTI (EN ÖNEMLİ KURAL): Gönderi GERÇEKTEN bu coin HAKKINDA olmalı — coin adı/
@@ -890,10 +890,23 @@ Kurallar:
   göre daha güvenilir bir sinyaldir çünkü kullanıcı bilinçli olarak o varlığı işaretlemiş
   olur — ama tek başına yeterli değil, gönderinin içeriği de gerçekten o coinle ilgili
   olmalı.
+- "genel_yon": SADECE "olumlu", "olumsuz" ya da "notr" — bulduğun gönderilerin
+  TOPLAMINDAN çıkardığın genel izlenim (marketing ekibi tek bakışta "bugün X'te bu
+  coin hakkında hava nasıl" diye soracak, tek tek gönderi okumadan cevap bu alan).
+  İlgili gönderi bulamadıysan "notr" yaz.
+- "genel_ozet": en fazla 15 kelime, Türkçe, "X'te ne konuşuluyor" sorusuna kısa bir
+  cevap (ör. "Whale birikimi ve ETF beklentisiyle olumlu bir hava var."). İlgili
+  gönderi bulamadıysan "İlgili gönderi bulunamadı." yaz.
 - "ilgi_puani": 0-100, gönderinin GERÇEKTEN bu coinle ne kadar doğrudan ilgili olduğuna
   dair kendi değerlendirmen (100 = doğrudan bu coin hakkında, 0 = sadece hashtag/etiket
   olarak geçiyor, asıl konu farklı). 60'ın altında bir puan vereceğin bir gönderiyi
   zaten listeye hiç ekleme — dahil ettiğin her gönderi gerçekten alakalı olmalı.
+- "onemli_hesap": true SADECE gerçekten emin olduğun durumlarda (doğrulanmış rozet,
+  tanınmış bir kripto influencer/kurum hesabı olduğunu bildiğin, ya da arama
+  sonucunda yüksek takipçili olduğu açıkça görünen bir hesap). Emin değilsen HER
+  ZAMAN false yaz — bu alan marketing ekibinin kiminle iletişime geçmeye değer
+  olduğuna karar vermesi için kullanılacak, yanlış "true" gereksiz/yanlış outreach'e
+  yol açar, o yüzden tahmin/varsayım kesinlikle yasak.
 - En fazla 5 gönderi döndür — MÜMKÜNSE aşağıdaki 3 türden bir karışım yap, ama
   bulamadığın türü ASLA uydurma; az sayıda gerçek gönderi, uydurma çeşitlilikten
   her zaman daha iyidir. ZAMAN PENCERESİ türe göre değişir:
@@ -961,7 +974,7 @@ def _clean_source_url(url) -> str | None:
     return url if url.startswith("http://") or url.startswith("https://") else None
 
 
-def _parse_x_post_feed_response(raw: str) -> list[dict]:
+def _parse_x_post_feed_response(raw: str) -> dict:
     data = _extract_json(raw)
     posts = []
     for item in (data.get("gonderiler") or [])[:5]:
@@ -980,11 +993,20 @@ def _parse_x_post_feed_response(raw: str) -> list[dict]:
             "metin": str(item.get("metin", ""))[:200],
             "url": url,
             "tur": tur if tur in ("yeni", "etkilesimli", "yukseliste") else "yeni",
+            # Sadece modelin GERÇEKTEN emin olduğu durumlarda true — bkz.
+            # sistem promptundaki "onemli_hesap" kuralı. Marketing ekibi
+            # bunu "kiminle iletişime geçmeye değer" filtresi olarak kullanır.
+            "onemli_hesap": item.get("onemli_hesap") is True,
         })
-    return posts
+    genel_yon = data.get("genel_yon")
+    return {
+        "gonderiler": posts,
+        "genel_yon": genel_yon if genel_yon in ("olumlu", "olumsuz", "notr") else "notr",
+        "genel_ozet": str(data.get("genel_ozet") or "")[:200],
+    }
 
 
-def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
+def fetch_x_post_feed(symbol: str, region: str = "global") -> dict:
     """Tek bir coin için Grok'a gerçek X gönderilerini getirtir. "url"
     olmayan (Grok'un talimata rağmen link vermediği) her gönderi baştan
     elenir — özet/skor değil, doğrudan kaynak gösteren ham veri döner.
@@ -1008,8 +1030,8 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
         "Global (herhangi bir dilde, dünya genelinden) gönderiler ara."
     )
     raw = _call_xai_x_search(f"Ticker: {symbol}\n{region_hint}", X_POST_FEED_SYSTEM_PROMPT)
-    posts = _parse_x_post_feed_response(raw)
-    if not posts:
+    result = _parse_x_post_feed_response(raw)
+    if not result["gonderiler"]:
         print(f"  ↻ X gönderi akışı ({symbol}/{region}) ilk denemede 0 sonuç — genişletilmiş pencereyle tekrar deneniyor")
         retry_content = (
             f"Ticker: {symbol}\n{region_hint}\n"
@@ -1020,8 +1042,22 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
             "boş liste döndürmen tamamen kabul edilebilir, uydurma yapma."
         )
         raw_retry = _call_xai_x_search(retry_content, X_POST_FEED_SYSTEM_PROMPT)
-        posts = _parse_x_post_feed_response(raw_retry)
-    return posts
+        result = _parse_x_post_feed_response(raw_retry)
+
+    # "Buzz" seviyesi: gerçek X hacmini iddia etmiyoruz — sadece bizim
+    # arama denemelerimizde kaç alakalı gönderi bulduğumuzun kaba bir
+    # göstergesi (marketing için "bugün konuşuluyor mu" sinyali).
+    post_count = len(result["gonderiler"])
+    if post_count >= 4:
+        buzz = "yuksek"
+    elif post_count >= 2:
+        buzz = "orta"
+    elif post_count >= 1:
+        buzz = "dusuk"
+    else:
+        buzz = "yok"
+    result["buzz"] = buzz
+    return result
 
 
 def fetch_x_discovery() -> dict:
@@ -1550,18 +1586,18 @@ async def x_feed(sembol: str, bolge: str = "global") -> dict:
     cached = _x_feed_cache.get(cache_key)
     now = datetime.now(timezone.utc)
     if cached and (now - cached["zaman"]).total_seconds() < X_FEED_CACHE_TTL_SECONDS:
-        return {"sembol": sembol, "bolge": bolge, "gonderiler": cached["veri"], "onbellek": True}
+        return {"sembol": sembol, "bolge": bolge, "onbellek": True, **cached["veri"]}
 
     try:
-        posts = await asyncio.to_thread(fetch_x_post_feed, sembol, bolge)
+        result = await asyncio.to_thread(fetch_x_post_feed, sembol, bolge)
     except Exception as exc:
         print(f"  ⚠ X gönderi akışı ({sembol}/{bolge}) alınamadı: {exc}")
         return {"sembol": sembol, "bolge": bolge, "gonderiler": [], "hata": "İstek başarısız oldu"}
 
-    _x_feed_cache[cache_key] = {"veri": posts, "zaman": now}
+    _x_feed_cache[cache_key] = {"veri": result, "zaman": now}
     _x_feed_request_count += 1
-    print(f"  ℹ X gönderi akışı çağrısı #{_x_feed_request_count} ({sembol}/{bolge}, {len(posts)} gönderi)")
-    return {"sembol": sembol, "bolge": bolge, "gonderiler": posts, "onbellek": False}
+    print(f"  ℹ X gönderi akışı çağrısı #{_x_feed_request_count} ({sembol}/{bolge}, {len(result['gonderiler'])} gönderi, buzz={result['buzz']})")
+    return {"sembol": sembol, "bolge": bolge, "onbellek": False, **result}
 
 
 @app.websocket("/ws")
