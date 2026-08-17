@@ -284,6 +284,13 @@ def init_db() -> None:
             conn.execute("ALTER TABLE x_discovery ADD COLUMN yon TEXT")
         if "ozet" not in x_discovery_cols:
             conn.execute("ALTER TABLE x_discovery ADD COLUMN ozet TEXT")
+        if "son_gorulme" not in x_discovery_cols:
+            # "Bugün gündemde mi" filtresi ilk_gorulme'ye (İLK keşif tarihi,
+            # bir daha değişmez) göre yapılamaz — haftalar önce keşfedilmiş
+            # ama dün tekrar trend olmuş bir ticker'ı yanlışlıkla "eski"
+            # gösterir. son_gorulme HER taramada güncellenir, günlük
+            # özet/mail bu sütuna göre filtrelenir (bkz. /api/daily-digest).
+            conn.execute("ALTER TABLE x_discovery ADD COLUMN son_gorulme TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -420,13 +427,13 @@ def db_upsert_x_discovery(trend_ticker_lar: list[dict]) -> list[str]:
             ).fetchone()
             if exists:
                 conn.execute(
-                    "UPDATE x_discovery SET yon = ?, ozet = ? WHERE ticker = ?",
-                    (item.get("yon"), item.get("ozet"), ticker),
+                    "UPDATE x_discovery SET yon = ?, ozet = ?, son_gorulme = ? WHERE ticker = ?",
+                    (item.get("yon"), item.get("ozet"), now_iso, ticker),
                 )
             else:
                 conn.execute(
-                    "INSERT INTO x_discovery (ticker, ilk_gorulme, yon, ozet) VALUES (?, ?, ?, ?)",
-                    (ticker, now_iso, item.get("yon"), item.get("ozet")),
+                    "INSERT INTO x_discovery (ticker, ilk_gorulme, yon, ozet, son_gorulme) VALUES (?, ?, ?, ?, ?)",
+                    (ticker, now_iso, item.get("yon"), item.get("ozet"), now_iso),
                 )
                 new_tickers.append(ticker)
         conn.commit()
@@ -439,9 +446,12 @@ def db_load_x_discovery() -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
     try:
         rows = conn.execute(
-            "SELECT ticker, ilk_gorulme, yon, ozet FROM x_discovery ORDER BY ilk_gorulme DESC"
+            "SELECT ticker, ilk_gorulme, yon, ozet, son_gorulme FROM x_discovery ORDER BY ilk_gorulme DESC"
         ).fetchall()
-        return [{"ticker": r[0], "ilk_gorulme": r[1], "yon": r[2], "ozet": r[3]} for r in rows]
+        return [
+            {"ticker": r[0], "ilk_gorulme": r[1], "yon": r[2], "ozet": r[3], "son_gorulme": r[4]}
+            for r in rows
+        ]
     finally:
         conn.close()
 
@@ -1633,6 +1643,102 @@ async def x_feed(sembol: str, bolge: str = "global") -> dict:
     _x_feed_request_count += 1
     print(f"  ℹ X gönderi akışı çağrısı #{_x_feed_request_count} ({sembol}/{bolge}, {len(result['gonderiler'])} gönderi, buzz={result['buzz']})")
     return {"sembol": sembol, "bolge": bolge, "onbellek": False, **result}
+
+
+DIGEST_HABER_PENCERE_SAAT = 24  # "günün gündemi" maili son 24s'lik haberleri kapsar
+DIGEST_X_PENCERE_SAAT = 48  # X Keşif günde 1 kez çalışır — 48s, bir sonraki
+                             # tarama gecikirse "dün bulunan" veriyi de kapsasın diye
+
+
+def _digest_haberler(simdi: "datetime", limit: int = 10) -> list[dict]:
+    """Marketing'in "haberler + yükselenler" mail taslağı için son
+    DIGEST_HABER_PENCERE_SAAT içindeki, "onemsiz" ETİKETLİ OLMAYAN haberleri
+    döner (en yeniden eskiye, en fazla `limit` tane — 24s'lik pencerede
+    onlarca haber birikebiliyor, bir mail için makul bir sayıya kesiyoruz).
+    Her haberin zaten kendi Gemini analizinde bir "email" içerik önerisi
+    var (bkz. SYSTEM_PROMPT — icerik_onerisi.email) — bunu ayrıca
+    uydurmuyoruz, varsa aynen taşıyoruz."""
+    kesim = simdi - timedelta(hours=DIGEST_HABER_PENCERE_SAAT)
+    sonuc = []
+    for haber in db_load_recent(50):
+        if len(sonuc) >= limit:
+            break
+        if haber.get("stablex_etiketi") == "onemsiz":
+            continue
+        try:
+            yayin_zamani = datetime.fromisoformat(haber.get("yayin_zamani", ""))
+        except ValueError:
+            continue
+        if yayin_zamani < kesim:
+            continue
+        kanallar = haber.get("onerilen_kanallar") or []
+        email_onerisi = (haber.get("icerik_onerisi") or {}).get("email") if "email" in kanallar else None
+        sonuc.append({
+            "baslik": haber.get("baslik_tr", ""),
+            "ozet": haber.get("ozet_tr", ""),
+            "etiket": haber.get("stablex_etiketi"),
+            "ilgili_varliklar": haber.get("ilgili_varliklar") or [],
+            "kaynak": haber.get("kaynak"),
+            "kaynak_url": haber.get("kaynak_url"),
+            "yayin_zamani": haber.get("yayin_zamani"),
+            "email_onerisi": email_onerisi,
+        })
+    return sonuc
+
+
+def _digest_yukselenler(limit: int = 5) -> list[dict]:
+    """_price_cache'ten (server-side, price_fetch_loop tarafından
+    güncellenen aynı kaynak) en çok yükselen coinleri döner — frontend'deki
+    renderTopMovers() ile aynı sıralama mantığı, burada mail taslağı için
+    tekrarlanıyor."""
+    entries = [
+        {"sembol": sembol, **veri}
+        for sembol, veri in _price_cache.items()
+        if isinstance(veri.get("degisim_24s"), (int, float))
+    ]
+    entries.sort(key=lambda e: e["degisim_24s"], reverse=True)
+    return [e for e in entries if e["degisim_24s"] > 0][:limit]
+
+
+def _digest_x_gundemi(simdi: "datetime", limit: int = 5) -> list[dict]:
+    """X Keşif'in "Bugün Öne Çıkanlar" verisinden son DIGEST_X_PENCERE_SAAT
+    içinde GÜNCELLENMİŞ (son_gorulme) ticker'ları döner — ilk_gorulme'ye göre
+    filtrelemiyoruz çünkü o "ilk keşif" tarihidir, haftalar önce keşfedilip
+    dün tekrar trend olmuş bir ticker'ı yanlışlıkla "eski" gösterirdi."""
+    kesim = simdi - timedelta(hours=DIGEST_X_PENCERE_SAAT)
+    sonuc = []
+    for item in db_load_x_discovery():
+        son_gorulme = item.get("son_gorulme")
+        if not son_gorulme:
+            continue
+        try:
+            son_gorulme_dt = datetime.fromisoformat(son_gorulme)
+        except ValueError:
+            continue
+        if son_gorulme_dt < kesim:
+            continue
+        sonuc.append(item)
+    sonuc.sort(key=lambda i: i["son_gorulme"], reverse=True)
+    return sonuc[:limit]
+
+
+@app.get("/api/daily-digest")
+async def daily_digest() -> dict:
+    """Marketing ekibinin "haberler + yükselenler" temalı kullanıcı
+    maili için tek çağrıda ihtiyaç duyacağı VERİYİ hazırlar — mail'i
+    KENDİSİ GÖNDERMEZ, sadece içerik/veri döner (gönderim ayrı, daha
+    büyük bir iş — kimlik bilgisi ve gönderim onayı gerektirir).
+
+    Üç bölüm de zaten çalışan, ücretsiz/önbellekli kaynaklardan geliyor
+    (market_intel, _price_cache, x_discovery) — bu endpoint için YENİ
+    bir Gemini/Grok çağrısı yapılmıyor, ek maliyeti yok."""
+    simdi = datetime.now(timezone.utc)
+    return {
+        "olusturma_zamani": simdi.isoformat(),
+        "one_cikan_haberler": _digest_haberler(simdi),
+        "yukselenler": _digest_yukselenler(),
+        "x_gundemi": _digest_x_gundemi(simdi),
+    }
 
 
 @app.websocket("/ws")
