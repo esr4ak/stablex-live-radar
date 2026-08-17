@@ -867,11 +867,22 @@ X_POST_FEED_SYSTEM_PROMPT = """Sen Stablex'te çalışan bir sosyal medya analis
 verilen TEK bir kripto para ticker'ı için X (Twitter) üzerinde TAM OLARAK 1 kez x_search
 aracını kullanarak GERÇEK gönderileri bul. SADECE aşağıdaki JSON formatında yanıtla:
 
-{"gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "begeni": 0, "yanit": 0, "repost": 0}]}
+{"gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "begeni": 0, "yanit": 0, "repost": 0, "tur": "yeni"}]}
 
 Kurallar:
-- En fazla 5 gönderi döndür — çeşitlilik önemli: mümkünse en yeni, en çok etkileşim alan
-  ve en çok yanıtlanan gönderilerden karışık bir seçki yap, hepsi aynı türden olmasın.
+- En fazla 5 gönderi döndür — ÇEŞİTLİLİK ÖNEMLİ, aşağıdaki 3 türden bir karışım yap
+  (hepsi aynı türden olmasın). ZAMAN PENCERESİ türe göre değişir:
+  - "yeni": SADECE son 1 SAAT içinde paylaşılmış gönderi(ler) — bu pencerenin dışında
+    bir şeyi "yeni" olarak etiketleme.
+  - "etkilesimli": son 24 SAAT içinden, toplam beğeni/repost/yanıt sayısı en yüksek
+    olan gönderi(ler) — "yeni"den farklı olarak daha geniş bir pencerede arayabilirsin,
+    zaman değil toplam popülerlik kriteri.
+  - "yukseliste": son 24 SAAT içinden, kısa sürede hızla etkileşim toplayan/momentum
+    kazanan bir gönderi — "etkilesimli"den farkı: toplam sayısı en yüksek olmayabilir
+    ama yayınlandığı andan bu yana hızla büyüyor/viral olmaya başlıyor. Böyle bir
+    gönderi bulamazsan bu türü atla, uydurma.
+- "tur": SADECE "yeni", "etkilesimli" ya da "yukseliste" — her gönderi için hangi
+  sebeple seçtiğini belirt.
 - "metin": gönderinin TAMAMI değil, en fazla 200 karakterlik bir alıntı.
 - "url": GERÇEKTEN bulduğun gönderinin tam X linki — ZORUNLU. Gerçek bir link
   bulamadığın bir gönderiyi listeye HİÇ EKLEME, uydurma link kesinlikle yasak.
@@ -925,17 +936,30 @@ def _clean_source_url(url) -> str | None:
     return url if url.startswith("http://") or url.startswith("https://") else None
 
 
-def fetch_x_post_feed(symbol: str) -> list[dict]:
+def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
     """Tek bir coin için Grok'a gerçek X gönderilerini getirtir. "url"
     olmayan (Grok'un talimata rağmen link vermediği) her gönderi baştan
-    elenir — özet/skor değil, doğrudan kaynak gösteren ham veri döner."""
-    raw = _call_xai_x_search(f"Ticker: {symbol}", X_POST_FEED_SYSTEM_PROMPT)
+    elenir — özet/skor değil, doğrudan kaynak gösteren ham veri döner.
+
+    region="tr": ayrı, açıkça Türkçe/Türkiye odaklı bir arama — global
+    aramayla AYNI çağrıda birleştirilmiyor çünkü kripto X'i ezici
+    çoğunlukla İngilizce/global; tek aramada "bölge etiketi" istesek bile
+    Türkçe içerik muhtemelen cılız kalırdı. Kullanıcı gerçekten TR
+    görünümü istediğinde ayrı bir ücretli çağrı yapılır (bkz. proje
+    notları — otomatik ikisini birden çekmiyoruz, maliyeti katlar)."""
+    region_hint = (
+        "SADECE Türkçe yazılmış, Türkiye'deki kullanıcılardan/hesaplardan gönderiler ara."
+        if region == "tr" else
+        "Global (herhangi bir dilde, dünya genelinden) gönderiler ara."
+    )
+    raw = _call_xai_x_search(f"Ticker: {symbol}\n{region_hint}", X_POST_FEED_SYSTEM_PROMPT)
     data = _extract_json(raw)
     posts = []
     for item in (data.get("gonderiler") or [])[:5]:
         url = _clean_source_url(item.get("url"))
         if not url:
             continue
+        tur = item.get("tur")
         posts.append({
             "yazar": str(item.get("yazar", ""))[:50],
             "metin": str(item.get("metin", ""))[:200],
@@ -943,6 +967,7 @@ def fetch_x_post_feed(symbol: str) -> list[dict]:
             "begeni": item.get("begeni", 0),
             "yanit": item.get("yanit", 0),
             "repost": item.get("repost", 0),
+            "tur": tur if tur in ("yeni", "etkilesimli", "yukseliste") else "yeni",
         })
     return posts
 
@@ -1444,22 +1469,47 @@ async def coins_feed() -> Response:
     return Response(content="\n".join(lines), media_type="application/xml")
 
 
+X_FEED_CACHE_TTL_SECONDS = 15 * 60  # 15 dk — sosyal sinyal bu sürede büyük değişmez;
+                                     # aynı coin'e art arda/birden fazla kişi bakarsa
+                                     # gereksiz tekrar ücretli arama yapılmasın diye.
+_x_feed_cache: dict = {}  # (sembol, bölge) -> {"veri": [...], "zaman": datetime}
+_x_feed_request_count = 0  # sunucu başladığından beri kaç GERÇEK (cache'siz) çağrı yapıldı
+
+
 @app.get("/api/x-feed")
-async def x_feed(sembol: str) -> dict:
+async def x_feed(sembol: str, bolge: str = "global") -> dict:
     """Talep üzerine (kullanıcı bir coin seçtiğinde) TEK bir coin için
     gerçek X gönderilerini getirir — arka planda çalışan zamanlanmış bir
     döngü DEĞİL, sadece bu istek geldiğinde Grok'a tek bir sorgu gider.
     Bu tasarım, önceki saatlik toplu tarama modelinin yavaşlık/güvenilirlik
-    sorununu ortadan kaldırır (bkz. main.py:fetch_x_post_feed notu)."""
+    sorununu ortadan kaldırır (bkz. main.py:fetch_x_post_feed notu).
+
+    15 dakikalık bir önbellek var (aynı sembol+bölge için tekrar arama
+    yapmaz) ve her GERÇEK (önbellekten dönmeyen) çağrı sunucu logunda
+    numaralandırılır — maliyeti takip etmek için console.x.ai'ye gitmeden
+    kabaca kaç çağrı yapıldığını görebilesin diye."""
+    global _x_feed_request_count
     sembol = sembol.strip().upper()
+    bolge = bolge if bolge in ("tr", "global") else "global"
     if sembol not in STABLEX_COINS_SET:
-        return {"sembol": sembol, "gonderiler": [], "hata": "Bilinmeyen sembol"}
+        return {"sembol": sembol, "bolge": bolge, "gonderiler": [], "hata": "Bilinmeyen sembol"}
+
+    cache_key = (sembol, bolge)
+    cached = _x_feed_cache.get(cache_key)
+    now = datetime.now(timezone.utc)
+    if cached and (now - cached["zaman"]).total_seconds() < X_FEED_CACHE_TTL_SECONDS:
+        return {"sembol": sembol, "bolge": bolge, "gonderiler": cached["veri"], "onbellek": True}
+
     try:
-        posts = await asyncio.to_thread(fetch_x_post_feed, sembol)
+        posts = await asyncio.to_thread(fetch_x_post_feed, sembol, bolge)
     except Exception as exc:
-        print(f"  ⚠ X gönderi akışı ({sembol}) alınamadı: {exc}")
-        return {"sembol": sembol, "gonderiler": [], "hata": "İstek başarısız oldu"}
-    return {"sembol": sembol, "gonderiler": posts}
+        print(f"  ⚠ X gönderi akışı ({sembol}/{bolge}) alınamadı: {exc}")
+        return {"sembol": sembol, "bolge": bolge, "gonderiler": [], "hata": "İstek başarısız oldu"}
+
+    _x_feed_cache[cache_key] = {"veri": posts, "zaman": now}
+    _x_feed_request_count += 1
+    print(f"  ℹ X gönderi akışı çağrısı #{_x_feed_request_count} ({sembol}/{bolge}, {len(posts)} gönderi)")
+    return {"sembol": sembol, "bolge": bolge, "gonderiler": posts, "onbellek": False}
 
 
 @app.websocket("/ws")
