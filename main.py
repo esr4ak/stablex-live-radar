@@ -864,11 +864,23 @@ async def competitor_coverage_loop() -> None:
 # TALEP ÜZERİNE (kullanıcı bir coin seçtiğinde), TEK coin için GERÇEK
 # gönderileri (özet/skor değil, ham gönderi + link) döndüren bir modele
 # geçildi — hem daha güvenilir hem her sonuç zaten kendi kaynağını taşıyor.
+#
+# TASARIM NOTU 2 (güvenilirlik turu): "TAM OLARAK 1 x_search" ve "son 1 SAAT"
+# kısıtları BTC gibi en çok konuşulan coin'de bile 0 sonuç dönmesine yol
+# açıyordu — model tek aramada zayıf sonuç bulduğunda telafi şansı yoktu.
+# Ayrıca "begeni"/"yanit"/"repost" alanları modelin gerçek erişimi olmadığı
+# için pratikte hep 0 dönüyordu (yanıltıcı, dekoratif) — tamamen kaldırıldı.
+# Şimdi: model kendi kararıyla 2. bir arama yapabiliyor, "yeni" penceresi
+# 3 saate genişletildi, ve fetch_x_post_feed() sunucu tarafında da 0 sonuç
+# durumunda 1 kez genişletilmiş pencereyle retry atıyor (bkz. fonksiyon).
 X_POST_FEED_SYSTEM_PROMPT = """Sen Stablex'te çalışan bir sosyal medya analistisin. Sana
-verilen TEK bir kripto para ticker'ı için X (Twitter) üzerinde TAM OLARAK 1 kez x_search
-aracını kullanarak GERÇEK gönderileri bul. SADECE aşağıdaki JSON formatında yanıtla:
+verilen TEK bir kripto para ticker'ı için X (Twitter) üzerinde x_search aracını kullanarak
+GERÇEK gönderileri bul. İlk aramanda yeterli/çeşitli sonuç bulamazsan farklı bir anahtar
+kelime kombinasyonuyla (ör. cashtag yerine proje adı, ya da tersi) EN FAZLA 1 kez daha
+arama yapabilirsin — toplam en fazla 2 x_search çağrısı. SADECE aşağıdaki JSON formatında
+yanıtla:
 
-{"gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "begeni": 0, "yanit": 0, "repost": 0, "tur": "yeni", "ilgi_puani": 100}]}
+{"gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "tur": "yeni", "ilgi_puani": 100}]}
 
 Kurallar:
 - ALAKA ŞARTI (EN ÖNEMLİ KURAL): Gönderi GERÇEKTEN bu coin HAKKINDA olmalı — coin adı/
@@ -882,9 +894,10 @@ Kurallar:
   dair kendi değerlendirmen (100 = doğrudan bu coin hakkında, 0 = sadece hashtag/etiket
   olarak geçiyor, asıl konu farklı). 60'ın altında bir puan vereceğin bir gönderiyi
   zaten listeye hiç ekleme — dahil ettiğin her gönderi gerçekten alakalı olmalı.
-- En fazla 5 gönderi döndür — ÇEŞİTLİLİK ÖNEMLİ, aşağıdaki 3 türden bir karışım yap
-  (hepsi aynı türden olmasın). ZAMAN PENCERESİ türe göre değişir:
-  - "yeni": SADECE son 1 SAAT içinde paylaşılmış gönderi(ler) — bu pencerenin dışında
+- En fazla 5 gönderi döndür — MÜMKÜNSE aşağıdaki 3 türden bir karışım yap, ama
+  bulamadığın türü ASLA uydurma; az sayıda gerçek gönderi, uydurma çeşitlilikten
+  her zaman daha iyidir. ZAMAN PENCERESİ türe göre değişir:
+  - "yeni": son 3 SAAT içinde paylaşılmış gönderi(ler) — bu pencerenin dışında
     bir şeyi "yeni" olarak etiketleme.
   - "etkilesimli": son 24 SAAT içinden, toplam beğeni/repost/yanıt sayısı en yüksek
     olan gönderi(ler) — "yeni"den farklı olarak daha geniş bir pencerede arayabilirsin,
@@ -898,8 +911,8 @@ Kurallar:
 - "metin": gönderinin TAMAMI değil, en fazla 200 karakterlik bir alıntı.
 - "url": GERÇEKTEN bulduğun gönderinin tam X linki — ZORUNLU. Gerçek bir link
   bulamadığın bir gönderiyi listeye HİÇ EKLEME, uydurma link kesinlikle yasak.
-- "begeni"/"yanit"/"repost": bildiğin gerçek sayılar; bilmiyorsan 0 yaz, uydurma.
-- Bu ticker hakkında gerçek/ilgili gönderi bulamazsan boş liste döndür."""
+- Bu ticker hakkında gerçek/ilgili gönderi bulamazsan boş liste döndür — bu durumda
+  bile uydurma gönderi EKLEME, boş liste dönmek her zaman kabul edilebilir."""
 
 X_DISCOVERY_SYSTEM_PROMPT = """Sen Stablex'te çalışan bir piyasa istihbaratı analistisin.
 X (Twitter) üzerinde en fazla 2 kez x_search aracı kullanarak şunları araştır:
@@ -948,23 +961,7 @@ def _clean_source_url(url) -> str | None:
     return url if url.startswith("http://") or url.startswith("https://") else None
 
 
-def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
-    """Tek bir coin için Grok'a gerçek X gönderilerini getirtir. "url"
-    olmayan (Grok'un talimata rağmen link vermediği) her gönderi baştan
-    elenir — özet/skor değil, doğrudan kaynak gösteren ham veri döner.
-
-    region="tr": ayrı, açıkça Türkçe/Türkiye odaklı bir arama — global
-    aramayla AYNI çağrıda birleştirilmiyor çünkü kripto X'i ezici
-    çoğunlukla İngilizce/global; tek aramada "bölge etiketi" istesek bile
-    Türkçe içerik muhtemelen cılız kalırdı. Kullanıcı gerçekten TR
-    görünümü istediğinde ayrı bir ücretli çağrı yapılır (bkz. proje
-    notları — otomatik ikisini birden çekmiyoruz, maliyeti katlar)."""
-    region_hint = (
-        "SADECE Türkçe yazılmış, Türkiye'deki kullanıcılardan/hesaplardan gönderiler ara."
-        if region == "tr" else
-        "Global (herhangi bir dilde, dünya genelinden) gönderiler ara."
-    )
-    raw = _call_xai_x_search(f"Ticker: {symbol}\n{region_hint}", X_POST_FEED_SYSTEM_PROMPT)
+def _parse_x_post_feed_response(raw: str) -> list[dict]:
     data = _extract_json(raw)
     posts = []
     for item in (data.get("gonderiler") or [])[:5]:
@@ -982,11 +979,48 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
             "yazar": str(item.get("yazar", ""))[:50],
             "metin": str(item.get("metin", ""))[:200],
             "url": url,
-            "begeni": item.get("begeni", 0),
-            "yanit": item.get("yanit", 0),
-            "repost": item.get("repost", 0),
             "tur": tur if tur in ("yeni", "etkilesimli", "yukseliste") else "yeni",
         })
+    return posts
+
+
+def fetch_x_post_feed(symbol: str, region: str = "global") -> list[dict]:
+    """Tek bir coin için Grok'a gerçek X gönderilerini getirtir. "url"
+    olmayan (Grok'un talimata rağmen link vermediği) her gönderi baştan
+    elenir — özet/skor değil, doğrudan kaynak gösteren ham veri döner.
+
+    region="tr": ayrı, açıkça Türkçe/Türkiye odaklı bir arama — global
+    aramayla AYNI çağrıda birleştirilmiyor çünkü kripto X'i ezici
+    çoğunlukla İngilizce/global; tek aramada "bölge etiketi" istesek bile
+    Türkçe içerik muhtemelen cılız kalırdı. Kullanıcı gerçekten TR
+    görünümü istediğinde ayrı bir ücretli çağrı yapılır (bkz. proje
+    notları — otomatik ikisini birden çekmiyoruz, maliyeti katlar).
+
+    GÜVENİLİRLİK: BTC gibi en çok konuşulan coin'lerde bile tek denemede
+    0 sonuç dönebiliyordu (model o seferinde zayıf arama yapmış olabilir).
+    İlk deneme boş dönerse, sunucu tarafında AÇIKÇA genişletilmiş bir
+    pencereyle (ve modele "ilk aramanda bir şey bulamadın" bilgisiyle)
+    1 kez daha deneriz. İkinci deneme de boşsa bu artık gerçek bir "ilgili
+    gönderi yok" sonucudur — daha fazla denemek maliyeti katlamaya değmez."""
+    region_hint = (
+        "SADECE Türkçe yazılmış, Türkiye'deki kullanıcılardan/hesaplardan gönderiler ara."
+        if region == "tr" else
+        "Global (herhangi bir dilde, dünya genelinden) gönderiler ara."
+    )
+    raw = _call_xai_x_search(f"Ticker: {symbol}\n{region_hint}", X_POST_FEED_SYSTEM_PROMPT)
+    posts = _parse_x_post_feed_response(raw)
+    if not posts:
+        print(f"  ↻ X gönderi akışı ({symbol}/{region}) ilk denemede 0 sonuç — genişletilmiş pencereyle tekrar deneniyor")
+        retry_content = (
+            f"Ticker: {symbol}\n{region_hint}\n"
+            "NOT: Bir önceki aramada bu ticker için hiç sonuç bulamadın. Zaman "
+            "penceresini biraz daha geniş tut (\"yeni\" için son 3 saat yerine "
+            "son 12 saate kadar bakabilirsin) ve farklı anahtar kelime/cashtag "
+            "kombinasyonları dene. Yine de gerçekten alakalı bir şey bulamazsan "
+            "boş liste döndürmen tamamen kabul edilebilir, uydurma yapma."
+        )
+        raw_retry = _call_xai_x_search(retry_content, X_POST_FEED_SYSTEM_PROMPT)
+        posts = _parse_x_post_feed_response(raw_retry)
     return posts
 
 
