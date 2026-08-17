@@ -164,26 +164,9 @@
         <div id="priceList" class="flex flex-col gap-1 max-h-96 overflow-y-auto pr-1"></div>
       </div>
 
-      <!-- Düzenleyici Kaynaklar -->
-      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
-        <h2 class="text-sm font-extrabold text-[#000]">Düzenleyici Kaynaklar</h2>
-        <div id="regulatoryLinks" class="flex flex-col gap-2"></div>
-      </div>
-
-      <!-- İstihbarat: Rakip Kapsamı + On-Chain Olaylar + X Keşif (sekmeli) -->
-      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-4 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
-        <h2 class="text-sm font-extrabold text-[#000]">İstihbarat</h2>
-        <div class="flex items-center gap-2 flex-wrap">
-          <button id="intelTabCoverage" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">Rakip Kapsamı</button>
-          <button id="intelTabOnchain" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">On-Chain Olaylar</button>
-          <button id="intelTabXKesif" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">X Keşif</button>
-        </div>
-        <div id="intelPanelCoverage" class="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1"></div>
-        <div id="intelPanelOnchain" class="flex-col gap-3"></div>
-        <div id="intelPanelXKesif" class="flex-col gap-3"></div>
-      </div>
-
-      <!-- X Gönderi Akışı (talep üzerine, Grok/x_search) -->
+      <!-- X Gönderi Akışı (talep üzerine, Grok/x_search) — Canlı Piyasa'nın
+           hemen altında: en çok aksiyon/etkileşim gerektiren modül,
+           sidebar'ın en dibinde kaybolmasın diye üste alındı. -->
       <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-sm font-extrabold text-[#000]">X Gönderi Akışı</h2>
@@ -198,6 +181,32 @@
         </div>
         <div id="xFeedSlider" class="flex items-stretch gap-2 overflow-x-auto pb-1 min-h-[64px]"></div>
         <p id="xFeedMeta" class="text-[10px] font-semibold text-[#6a7282]"></p>
+      </div>
+
+      <!-- On-Chain Olaylar (eskiden İstihbarat'ın bir sekmesiydi — sekme
+           arkasına gizlenince kullanıcı tıklamadan olduğunu bilemiyordu,
+           ayrı karta çıkarıldı). -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <h2 class="text-sm font-extrabold text-[#000]">On-Chain Olaylar</h2>
+        <div id="intelPanelOnchain" class="flex flex-col gap-3"></div>
+      </div>
+
+      <!-- X Keşif (Stablex'te olmayan trend coinler + rakip X sentiment'i) -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <h2 class="text-sm font-extrabold text-[#000]">X Keşif</h2>
+        <div id="intelPanelXKesif" class="flex flex-col gap-3"></div>
+      </div>
+
+      <!-- Rakip Kapsamı -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <h2 class="text-sm font-extrabold text-[#000]">Rakip Kapsamı</h2>
+        <div id="intelPanelCoverage" class="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1"></div>
+      </div>
+
+      <!-- Düzenleyici Kaynaklar (en az sık kullanılan referans linkler, en altta) -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <h2 class="text-sm font-extrabold text-[#000]">Düzenleyici Kaynaklar</h2>
+        <div id="regulatoryLinks" class="flex flex-col gap-2"></div>
       </div>
 
     </aside>
@@ -669,10 +678,9 @@
     renderFeed();
   }
 
-  // ---------- İstihbarat: Rakip Kapsamı + On-Chain Olaylar + X Keşif ----------
-  const intelTabCoverage = document.getElementById("intelTabCoverage");
-  const intelTabOnchain = document.getElementById("intelTabOnchain");
-  const intelTabXKesif = document.getElementById("intelTabXKesif");
+  // ---------- Rakip Kapsamı + On-Chain Olaylar + X Keşif (artık 3 ayrı
+  // kart — sekme arkasına gizlenince kullanıcı tıklamadan olduğunu
+  // bilemiyordu, keşfedilebilirlik için ayrıştırıldı) ----------
   const intelPanelCoverage = document.getElementById("intelPanelCoverage");
   const intelPanelOnchain = document.getElementById("intelPanelOnchain");
   const intelPanelXKesif = document.getElementById("intelPanelXKesif");
@@ -702,21 +710,6 @@
     renderCompetitorCoverage();
   }
 
-  function setIntelTab(tab) {
-    const activeCls = "rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200 bg-[#000] text-white";
-    const inactiveCls = "rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200 bg-[#f9fafb] text-[#6a7282]";
-    intelTabCoverage.className = tab === "coverage" ? activeCls : inactiveCls;
-    intelTabOnchain.className = tab === "onchain" ? activeCls : inactiveCls;
-    intelTabXKesif.className = tab === "xkesif" ? activeCls : inactiveCls;
-    intelPanelCoverage.style.display = tab === "coverage" ? "flex" : "none";
-    intelPanelOnchain.style.display = tab === "onchain" ? "flex" : "none";
-    intelPanelXKesif.style.display = tab === "xkesif" ? "flex" : "none";
-  }
-
-  intelTabCoverage.addEventListener("click", () => setIntelTab("coverage"));
-  intelTabOnchain.addEventListener("click", () => setIntelTab("onchain"));
-  intelTabXKesif.addEventListener("click", () => setIntelTab("xkesif"));
-  setIntelTab("coverage");
   renderCompetitorCoverage();
 
   // ---------- X Keşif: Stablex'te olmayan trend ticker'lar + rakip X sentiment'i ----------
