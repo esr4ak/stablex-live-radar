@@ -80,7 +80,10 @@ STABLEX_COIN_IDS = {
 # bunların ardından alfabetik sırayla akar (bkz. main.py price_stream_loop).
 TOP_COIN_SYMBOLS = ["BTC", "ETH", "SOL", "AVAX", "XRP", "ADA", "DOGE", "LINK", "DOT", "LTC"]
 
-PRICE_FETCH_INTERVAL_SECONDS = 90  # CoinGecko'ya gerçek istek sıklığı (1-2 dk bandı)
+PRICE_FETCH_INTERVAL_SECONDS = 300  # CoinGecko demo tier: 10.000 çağrı/ay limiti var. 90sn'de
+                                     # bir çekersek ayda ~28.800 çağrı olur (limitin ~3 katı) —
+                                     # sunucu 7/24 açık kalırsa ayın ortasında rate-limit yenir.
+                                     # 300sn (5 dk) ile ayda ~8.640 çağrı, güvenli bir tampon payıyla altında.
 PRICE_STREAM_INTERVAL_SECONDS = 3  # istemciye yayın sıklığı (UI ritmi, cache'ten okunur)
 
 # Rakip borsa coin listeleri günde birkaç kez bile değişmez — 6 saatte bir
