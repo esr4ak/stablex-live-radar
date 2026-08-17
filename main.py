@@ -276,6 +276,14 @@ def init_db() -> None:
                 ilk_gorulme TEXT NOT NULL
             )
         """)
+        # "Bugün Öne Çıkanlar" — trend ticker'a eşlik eden yön/özet, aynı
+        # günlük tarama çağrısından geliyor (ek maliyet yok). ilk_gorulme'nin
+        # aksine bunlar HER taramada güncellenir (bkz. db_upsert_x_discovery).
+        x_discovery_cols = {row[1] for row in conn.execute("PRAGMA table_info(x_discovery)")}
+        if "yon" not in x_discovery_cols:
+            conn.execute("ALTER TABLE x_discovery ADD COLUMN yon TEXT")
+        if "ozet" not in x_discovery_cols:
+            conn.execute("ALTER TABLE x_discovery ADD COLUMN ozet TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -395,20 +403,31 @@ def db_set_state(key: str, value: str) -> None:
         conn.close()
 
 
-def db_upsert_x_discovery(tickers: list[str]) -> list[str]:
-    """competitor_coverage ile aynı desen: (INSERT OR IGNORE) zaten var
-    olan ticker'ların ilk_gorulme'sini değiştirmez, sadece gerçekten
-    yeni olanları döner."""
+def db_upsert_x_discovery(trend_ticker_lar: list[dict]) -> list[str]:
+    """competitor_coverage ile aynı desen: ilk_gorulme yalnızca ticker İLK
+    kez görüldüğünde yazılır, bir daha değişmez. "yon"/"ozet" ise tam
+    tersi — HER taramada güncellenir, çünkü bir coin hakkındaki X hissiyatı
+    günden güne değişebilir ("Bugün Öne Çıkanlar" widget'ı için güncel
+    kalması gerekiyor)."""
     conn = sqlite3.connect(DB_PATH)
     try:
         now_iso = datetime.now(timezone.utc).isoformat()
         new_tickers = []
-        for ticker in tickers:
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO x_discovery (ticker, ilk_gorulme) VALUES (?, ?)",
-                (ticker, now_iso),
-            )
-            if cur.rowcount:
+        for item in trend_ticker_lar:
+            ticker = item["ticker"]
+            exists = conn.execute(
+                "SELECT 1 FROM x_discovery WHERE ticker = ?", (ticker,)
+            ).fetchone()
+            if exists:
+                conn.execute(
+                    "UPDATE x_discovery SET yon = ?, ozet = ? WHERE ticker = ?",
+                    (item.get("yon"), item.get("ozet"), ticker),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO x_discovery (ticker, ilk_gorulme, yon, ozet) VALUES (?, ?, ?, ?)",
+                    (ticker, now_iso, item.get("yon"), item.get("ozet")),
+                )
                 new_tickers.append(ticker)
         conn.commit()
         return new_tickers
@@ -420,9 +439,9 @@ def db_load_x_discovery() -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
     try:
         rows = conn.execute(
-            "SELECT ticker, ilk_gorulme FROM x_discovery ORDER BY ilk_gorulme DESC"
+            "SELECT ticker, ilk_gorulme, yon, ozet FROM x_discovery ORDER BY ilk_gorulme DESC"
         ).fetchall()
-        return [{"ticker": r[0], "ilk_gorulme": r[1]} for r in rows]
+        return [{"ticker": r[0], "ilk_gorulme": r[1], "yon": r[2], "ozet": r[3]} for r in rows]
     finally:
         conn.close()
 
@@ -935,15 +954,19 @@ X (Twitter) üzerinde en fazla 2 kez x_search aracı kullanarak şunları araşt
 
 SADECE aşağıdaki JSON formatında yanıtla:
 {
-  "trend_ticker_lar": ["XYZ", "ABC"],
+  "trend_ticker_lar": [{"ticker": "XYZ", "yon": "olumlu", "ozet": "..."}],
   "rakip_sentiment": {"Paribu": {"yon": "olumlu", "ozet": "...", "kaynak_url": "https://x.com/..."}}
 }
 
 Kurallar:
 - "trend_ticker_lar": en fazla 10 tane, SADECE gerçekten popüler ve şüpheli/spam olmayan
-  ticker'lar — emin olmadığın bir şeyi ekleme, boş liste döndürebilirsin.
-- "yon" alanı SADECE "olumlu", "olumsuz" ya da "notr" olabilir.
-- "ozet" en fazla 20 kelime, nesnel bir dille.
+  ticker'lar — emin olmadığın bir şeyi ekleme, boş liste döndürebilirsin. Her ticker için
+  KENDİ "yon" (olumlu/olumsuz/notr) ve "ozet"ini (en fazla 12 kelime, "neden trend olduğu"
+  — ör. "ETF onay beklentisiyle yükseliyor") ver — marketing ekibi bu listeye bakarken
+  hangi coin'in neden gündemde olduğunu tek bakışta görsün diye.
+- "yon" alanları (hem ticker hem rakip_sentiment için) SADECE "olumlu", "olumsuz" ya da
+  "notr" olabilir.
+- "ozet" alanları nesnel bir dille, kısa tutulmalı.
 - "kaynak_url": rakip_sentiment değerlendirmene dayanak olan, GERÇEKTEN bulduğun bir
   gönderinin tam X linki. Gerçek bir link bulamadıysan bu alanı hiç ekleme — ASLA link
   uydurma, bu en kritik kural."""
@@ -1068,7 +1091,19 @@ def fetch_x_discovery() -> dict:
     user_content = f"Rakip borsa(lar): {', '.join(X_DISCOVERY_COMPETITOR_NAMES)}"
     raw = _call_xai_x_search(user_content, X_DISCOVERY_SYSTEM_PROMPT)
     data = _extract_json(raw)
-    trend_tickers = [str(t).strip().upper() for t in (data.get("trend_ticker_lar") or []) if str(t).strip()]
+    trend_tickers = []
+    for item in (data.get("trend_ticker_lar") or []):
+        if not isinstance(item, dict):
+            continue
+        ticker = str(item.get("ticker", "")).strip().upper()
+        if not ticker:
+            continue
+        yon = item.get("yon")
+        trend_tickers.append({
+            "ticker": ticker,
+            "yon": yon if yon in ("olumlu", "olumsuz", "notr") else "notr",
+            "ozet": str(item.get("ozet") or "")[:200],
+        })
     rakip_sentiment = {}
     for rakip, info in (data.get("rakip_sentiment") or {}).items():
         if not isinstance(info, dict):
@@ -1103,7 +1138,7 @@ async def x_discovery_loop() -> None:
             await asyncio.sleep(X_DISCOVERY_INTERVAL_SECONDS)
             continue
 
-        unlisted = [t for t in result["trend_ticker_lar"] if t not in STABLEX_COINS_SET]
+        unlisted = [t for t in result["trend_ticker_lar"] if t["ticker"] not in STABLEX_COINS_SET]
         if unlisted:
             new_tickers = await asyncio.to_thread(db_upsert_x_discovery, unlisted)
             if new_tickers:

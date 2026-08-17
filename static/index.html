@@ -719,13 +719,25 @@
     const rakipSentiment = veri?.rakip_sentiment || {};
     const parts = [];
 
-    parts.push('<p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282]">Stablex\'te Olmayan Trend Coinler</p>');
+    parts.push('<p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282]">Bugün Öne Çıkanlar</p>');
     if (trendCoinler.length) {
-      parts.push(`<div class="flex flex-col gap-1.5">${trendCoinler.map((item) => `
-        <div class="flex items-center justify-between gap-3 rounded-lg bg-[#f9fafb] px-3 py-2">
-          <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(item.ticker)}</span>
-          <span class="text-[10px] font-medium text-[#6a7282] tabular-nums">${fmtDate(item.ilk_gorulme)}</span>
-        </div>`).join("")}</div>`);
+      // Marketing ekibi "hangi coin neden trend" sorusunu tek bakışta
+      // görebilsin diye — yön/özet aynı günlük keşif taramasından geliyor,
+      // ek maliyet yok (bkz. main.py:X_DISCOVERY_SYSTEM_PROMPT).
+      parts.push(`<div class="flex flex-col gap-1.5">${trendCoinler.map((item) => {
+        const yonCls = item.yon === "olumlu" ? "text-[#00c758]" : item.yon === "olumsuz" ? "text-[#fb2c36]" : "text-[#6a7282]";
+        return `
+        <div class="rounded-lg bg-[#f9fafb] px-3 py-2 flex flex-col gap-1">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(item.ticker)}</span>
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="text-[10px] font-bold ${yonCls}">${escapeHtml(SENTIMENT_YON_LABEL[item.yon] || "")}</span>
+              <span class="text-[10px] font-medium text-[#6a7282] tabular-nums">${fmtDate(item.ilk_gorulme)}</span>
+            </div>
+          </div>
+          ${item.ozet ? `<p class="text-[11px] font-medium text-[#364153]">${escapeHtml(item.ozet)}</p>` : ""}
+        </div>`;
+      }).join("")}</div>`);
     } else {
       parts.push('<p class="text-xs font-semibold text-[#6a7282]">Henüz fark tespit edilmedi.</p>');
     }
