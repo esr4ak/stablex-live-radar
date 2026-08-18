@@ -841,6 +841,63 @@ def fetch_competitor_coins_api(source: dict) -> set[str]:
     return symbols
 
 
+def fetch_competitor_coins_btcturk(source: dict) -> set[str]:
+    """BtcTurk formatı: {"data": [{"numeratorSymbol": "BTC", ...}, ...]} —
+    Paribu'nun pair->veri sözlüğünden farklı, düz bir liste, üstelik taban
+    sembolü ("numeratorSymbol") ayrıştırma gerektirmeden hazır geliyor."""
+    response = requests.get(source["url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+    return {
+        str(row["numeratorSymbol"]).strip().upper()
+        for row in data.get("data", [])
+        if row.get("numeratorSymbol")
+    }
+
+
+def fetch_competitor_coins_bitexen(source: dict) -> set[str]:
+    """Bitexen formatı: {"data": {"ticker": {"BTCTRY": {"market":
+    {"base_currency_code": "BTC"}, ...}}}} — taban sembolü market objesinin
+    içinde ayrı bir alan olarak geliyor, pair adından ayrıştırmaya gerek yok."""
+    response = requests.get(source["url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+    ticker = data.get("data", {}).get("ticker", {})
+    return {
+        str(info["market"]["base_currency_code"]).strip().upper()
+        for info in ticker.values()
+        if isinstance(info, dict) and info.get("market", {}).get("base_currency_code")
+    }
+
+
+def fetch_competitor_coins_icrypex(source: dict) -> set[str]:
+    """ICRYPEX formatı: [{"symbol": "BTCUSDT", ...}, ...] — düz liste,
+    "/P" son eki vadeli işlem çiftlerini belirtir (ayıklanır). Taban sembolü
+    ayrıştırmak için bilinen quote para birimleri son ekten kırpılır;
+    tanımadığımız bir quote'la biten (ör. ICRYPEX'in kendi token'ıyla
+    eşleşen egzotik çiftler) sembolleri ATLIYORUZ — yanlış ayrıştırılmış
+    bir taban sembolü eklemek, hiç eklememekten daha kötü."""
+    known_quotes = ("USDT", "TRY", "USD", "BTC")
+    response = requests.get(source["url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    response.raise_for_status()
+    symbols = set()
+    for row in response.json():
+        pair = str(row.get("symbol", "")).strip().upper().removesuffix("/P")
+        for quote in known_quotes:
+            if pair.endswith(quote) and len(pair) > len(quote):
+                symbols.add(pair[: -len(quote)])
+                break
+    return symbols
+
+
+COMPETITOR_FETCHERS = {
+    "api": fetch_competitor_coins_api,
+    "btcturk_api": fetch_competitor_coins_btcturk,
+    "bitexen_api": fetch_competitor_coins_bitexen,
+    "icrypex_api": fetch_competitor_coins_icrypex,
+}
+
+
 async def competitor_coverage_loop() -> None:
     """sources.py:COMPETITOR_SOURCES'taki her rakip için ("api" tipinde
     canlı taranan ya da "manual" tipinde elle tutulan) coin listesini
@@ -854,10 +911,10 @@ async def competitor_coverage_loop() -> None:
         any_new = False
         for source in COMPETITOR_SOURCES:
             try:
-                if source["type"] == "api":
-                    coins = await asyncio.to_thread(fetch_competitor_coins_api, source)
-                elif source["type"] == "manual":
+                if source["type"] == "manual":
                     coins = set(source.get("coins", []))
+                elif source["type"] in COMPETITOR_FETCHERS:
+                    coins = await asyncio.to_thread(COMPETITOR_FETCHERS[source["type"]], source)
                 else:
                     continue
             except Exception as exc:

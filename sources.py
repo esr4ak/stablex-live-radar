@@ -112,16 +112,26 @@ CHANNELS = {
 # Rakip Kapsam Farkı — "rakipte var, Stablex'te yok" coin tespiti.
 #
 # type:
-#   "api"    — herkese açık, kimlik doğrulamasız bir uç nokta var (Paribu),
-#              tam otomatik taranır (bkz. main.py fetch_paribu_coins()).
-#   "manual" — herkese açık/güvenilir bir API bulunamayan rakipler için
-#              (ör. Cloudflare bot korumalı siteler); coin listesi elle
-#              güncellenir. Şu an tanımlı rakip yok — Midas Kripto
-#              kapsam dışı bırakıldı (bkz. proje notları: Cloudflare
-#              korumasını kırmak maliyet/hukuki risk açısından
-#              gerekçelendirilmedi).
+#   "api"          — Paribu'nun formatı: {"AAVE_TL": {...}, ...} düz bir
+#                     pair->veri sözlüğü (bkz. main.py fetch_competitor_coins_api()).
+#   "btcturk_api"  — BtcTurk'ün formatı: {"data": [{"numeratorSymbol": "BTC", ...}]}.
+#   "bitexen_api"  — Bitexen'in formatı: {"data": {"ticker": {"BTCTRY": {"market":
+#                     {"base_currency_code": "BTC"}, ...}}}}.
+#   "icrypex_api"  — ICRYPEX'in formatı: [{"symbol": "BTCUSDT", ...}, ...] (düz liste,
+#                     "/P" son eki vadeli işlem çiftlerini belirtir, ayıklanır).
+#   "manual"       — herkese açık/güvenilir bir API bulunamayan rakipler için
+#                     (ör. Cloudflare bot korumalı siteler); coin listesi elle
+#                     güncellenir. Şu an tanımlı rakip yok — Midas Kripto
+#                     kapsam dışı bırakıldı (bkz. proje notları: Cloudflare
+#                     korumasını kırmak maliyet/hukuki risk açısından
+#                     gerekçelendirilmedi).
+#
+# Tüm uç noktalar 2026-08-18'de curl ile canlı doğrulandı.
 COMPETITOR_SOURCES = [
     {"name": "Paribu", "type": "api", "url": "https://www.paribu.com/ticker"},
+    {"name": "BtcTurk", "type": "btcturk_api", "url": "https://api.btcturk.com/api/v2/ticker"},
+    {"name": "Bitexen", "type": "bitexen_api", "url": "https://www.bitexen.com/api/v1/ticker/"},
+    {"name": "ICRYPEX", "type": "icrypex_api", "url": "https://api.icrypex.com/v1/tickers"},
 ]
 
 # X Gönderi Akışı + Keşif — X (Twitter) üzerinden Grok API (xAI) ile.
@@ -150,7 +160,7 @@ X_POST_FEED_MIN_RELEVANCE = 60
 # açık uçlu keşif sorgusu muhtemelen daha çok arama gerektirir — günlük
 # yeterli, yeni coin/rakip sinyali saatlik olacak kadar acil değil.
 X_DISCOVERY_INTERVAL_SECONDS = 24 * 60 * 60
-X_DISCOVERY_COMPETITOR_NAMES = ["Paribu"]  # COMPETITOR_SOURCES'taki isimlerle tutarlı tutulmalı
+X_DISCOVERY_COMPETITOR_NAMES = ["Paribu", "BtcTurk", "Bitexen", "ICRYPEX"]  # COMPETITOR_SOURCES'taki isimlerle tutarlı tutulmalı
 
 # On-Chain Olaylar — Whale Alert kullanılmadı (ücretsiz tier yok, $29.95/ay'lık
 # planı "personal use only" lisanslı — Stablex bir şirket olduğu için uygun
