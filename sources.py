@@ -19,10 +19,14 @@ WHITELIST_SOURCES = [
     {"name": "Cointelegraph", "type": "rss", "url": "https://cointelegraph.com/rss", "kategori": "Küresel"},
     {"name": "Decrypt", "type": "rss", "url": "https://decrypt.co/feed", "kategori": "Küresel"},
     {"name": "CryptoSlate", "type": "rss", "url": "https://cryptoslate.com/feed/", "kategori": "Küresel"},
+    {"name": "BeInCrypto", "type": "rss", "url": "https://beincrypto.com/feed/", "kategori": "Küresel"},
+    {"name": "U.Today", "type": "rss", "url": "https://u.today/rss", "kategori": "Küresel"},
+    {"name": "Blockworks", "type": "rss", "url": "https://blockworks.co/feed", "kategori": "Küresel"},
     {"name": "Reuters", "type": "google_news", "query": "site:reuters.com finance markets", "kategori": "Küresel"},
     # --- Yerel (Türkiye) ---
     {"name": "Bloomberg HT", "type": "rss", "url": "https://www.bloomberght.com/rss", "kategori": "Yerel"},
     {"name": "Uzmancoin", "type": "rss", "url": "https://uzmancoin.com/feed/", "kategori": "Yerel"},
+    {"name": "Koinbülteni", "type": "rss", "url": "https://koinbulteni.com/feed/", "kategori": "Yerel"},
     {"name": "Foreks Haber", "type": "google_news", "query": "Foreks piyasa haberleri", "kategori": "Yerel"},
     # --- Regülasyon kurumları ---
     {"name": "SPK", "type": "spk_html", "kategori": "Regülasyon"},
@@ -41,6 +45,13 @@ REGULATORY_LINKS = [
     {"name": "SPK", "url": "https://spk.gov.tr/duyurular"},
     {"name": "SEC", "url": "https://www.sec.gov/newsroom/press-releases"},
     {"name": "ESMA (MiCA)", "url": "https://www.esma.europa.eu/esmas-activities/digital-finance-and-innovation/markets-crypto-assets-regulation-mica"},
+    # BDDK/Hazine'nin RSS'i yok ve duyuru sayfaları SPK'nınki gibi kolay
+    # taranabilir bir HTML kalıbına sahip değil (JS-render / kararsız yapı) —
+    # bir "haber" olarak akışa dahil etmek yerine şimdilik hızlı erişim
+    # linki olarak eklendi; ileride kararlı bir kalıp bulunursa spk_html
+    # gibi bir scraper'a çevrilebilir.
+    {"name": "BDDK", "url": "https://www.bddk.org.tr/BultenHaberler"},
+    {"name": "Hazine ve Maliye Bakanlığı", "url": "https://www.hmb.gov.tr/haberler"},
 ]
 
 # Stablex'te listeli 61 varlık — Gemini'nin ürettiği "ilgili_varliklar" bu
