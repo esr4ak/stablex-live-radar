@@ -70,6 +70,7 @@ import os
 import re
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1064,6 +1065,25 @@ def _clean_source_url(url) -> str | None:
     return url if url.startswith("http://") or url.startswith("https://") else None
 
 
+def _post_url_is_real(url: str) -> bool:
+    """Grok'un verdiği "url" alanının GERÇEKTEN var olan bir X gönderisine
+    işaret ettiğini doğrular — sadece "http(s) ile başlıyor mu" kontrolü
+    (bkz. _clean_source_url) uydurma ama iyi biçimlendirilmiş bir link'i
+    yakalamaz. X, kimlik doğrulaması olmadan HEAD isteklerine gerçek
+    durum kodu (var olan gönderi için 200, olmayan için 404) döndürüyor —
+    bunu ücretsiz, ek API maliyeti olmadan bir doğruluk kontrolü olarak
+    kullanıyoruz. Ağ hatası/timeout durumunda temkinli davranıp GÖNDERİYİ
+    ELEMİYORUZ (fail-open) — geçici bir ağ sorunu yüzünden gerçek bir
+    gönderiyi kaybetmek istemiyoruz, sadece kesin 404'ü eliyoruz."""
+    try:
+        response = requests.head(
+            url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6, allow_redirects=True
+        )
+        return response.status_code != 404
+    except Exception:
+        return True
+
+
 def _parse_x_post_feed_response(raw: str) -> dict:
     data = _extract_json(raw)
     posts = []
@@ -1133,6 +1153,14 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> dict:
         )
         raw_retry = _call_xai_x_search(retry_content, X_POST_FEED_SYSTEM_PROMPT)
         result = _parse_x_post_feed_response(raw_retry)
+
+    if result["gonderiler"]:
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            real_flags = list(pool.map(lambda p: _post_url_is_real(p["url"]), result["gonderiler"]))
+        dropped = [p for p, real in zip(result["gonderiler"], real_flags) if not real]
+        if dropped:
+            print(f"  ✗ X gönderi akışı ({symbol}/{region}): {len(dropped)} gönderi 404 (uydurma link) — elendi")
+        result["gonderiler"] = [p for p, real in zip(result["gonderiler"], real_flags) if real]
 
     # "Buzz" seviyesi: gerçek X hacmini iddia etmiyoruz — sadece bizim
     # arama denemelerimizde kaç alakalı gönderi bulduğumuzun kaba bir
