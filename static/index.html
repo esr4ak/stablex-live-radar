@@ -925,37 +925,59 @@
     return "$" + v.toLocaleString("en-US");
   }
 
-  function stablecoinCardHtml(sc) {
-    const dirLabel = sc.yon === "mint" ? "Arz artışı (mint)" : sc.yon === "burn" ? "Arz azalışı (burn)" : "Değişim yok";
-    const dirCls = sc.yon === "mint" ? "text-[#00c758]" : sc.yon === "burn" ? "text-[#fb2c36]" : "text-[#6a7282]";
-    const change = sc.degisim_24s_yuzde;
-    const changeSign = change >= 0 ? "+" : "";
+  // "yon" alanı zaten sunucuda eşiğe göre hesaplanıyor (ONCHAIN_CHANGE_THRESHOLD_PCT/
+  // ONCHAIN_TVL_CHANGE_THRESHOLD_PCT — bkz. main.py:fetch_stablecoin_supply_change,
+  // fetch_chain_tvl_change) ama önceden frontend bunu hiç kullanmıyordu, her şeyi
+  // (eşiği aşsın aşmasın) aynı ağırlıkta gösteriyordu — "Olaylar" başlığına rağmen
+  // aslında bir istatistik dökümüydü. Şimdi SADECE eşiği aşanlar "olay" kartı olarak
+  // öne çıkıyor, geri kalanı sönük bir "referans değerler" listesine iniyor.
+  function stablecoinEventHtml(sc) {
+    const artis = sc.yon === "mint";
+    const dirCls = artis ? "text-[#00c758]" : "text-[#fb2c36]";
+    const fiil = artis ? "arttı" : "azaldı";
+    const anlam = artis
+      ? "büyük bir mint genelde borsalara yeni likidite girişine, olumlu bir sinyale işaret eder"
+      : "büyük bir burn genelde likidite çıkışına, dikkat edilmesi gereken bir sinyale işaret eder";
     return `
-      <div class="flex items-center justify-between gap-3">
-        <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(sc.sembol)} Küresel Arz</span>
-        <span class="text-[11px] font-bold tabular-nums text-[#364153]">${fmtUsdCompact(sc.dolasimdaki_arz_usd)}</span>
-      </div>
-      <div class="flex items-center justify-between gap-3 rounded-lg bg-[#f9fafb] px-3 py-2">
-        <span class="text-[11px] font-bold ${dirCls}">${dirLabel}</span>
-        <span class="text-[11px] font-bold tabular-nums ${dirCls}">${changeSign}${change.toFixed(2)}% (24s)</span>
-      </div>
-      <p class="text-[10px] font-medium text-[#6a7282]">7g değişim: ${sc.degisim_7g_yuzde >= 0 ? "+" : ""}${sc.degisim_7g_yuzde.toFixed(2)}% — büyük bir mint borsalara yeni likidite girişine, büyük bir burn likidite çıkışına işaret edebilir.</p>`;
+      <div class="rounded-lg bg-[#f9fafb] px-3 py-2 flex flex-col gap-1">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(sc.sembol)} Küresel Arz</span>
+          <span class="text-[11px] font-bold tabular-nums ${dirCls}">${sc.degisim_24s_yuzde >= 0 ? "+" : ""}${sc.degisim_24s_yuzde.toFixed(2)}%</span>
+        </div>
+        <p class="text-[11px] font-medium text-[#364153]">${escapeHtml(sc.sembol)} arzı son 24 saatte %${Math.abs(sc.degisim_24s_yuzde).toFixed(2)} ${fiil} (${fmtUsdCompact(sc.dolasimdaki_arz_usd)}) — ${anlam}.</p>
+      </div>`;
   }
 
-  function chainTvlRowHtml(chain) {
-    const dirCls = chain.yon === "artis" ? "text-[#00c758]" : chain.yon === "azalis" ? "text-[#fb2c36]" : "text-[#6a7282]";
-    const change = chain.degisim_24s_yuzde;
-    const changeSign = change >= 0 ? "+" : "";
+  function chainTvlEventHtml(chain) {
+    const artis = chain.yon === "artis";
+    const dirCls = artis ? "text-[#00c758]" : "text-[#fb2c36]";
+    const fiil = artis ? "arttı" : "azaldı";
+    const anlam = artis ? "DeFi'ye yeni sermaye giriyor" : "sermaye zincirden çıkıyor";
     return `
-      <div class="flex items-center justify-between gap-3 rounded-lg bg-[#f9fafb] px-3 py-2">
-        <div class="flex items-center gap-2">
-          <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(chain.sembol)}</span>
-          <span class="text-[10px] font-bold text-[#6a7282]">TVL</span>
+      <div class="rounded-lg bg-[#f9fafb] px-3 py-2 flex flex-col gap-1">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-[11px] font-extrabold text-[#000]">${escapeHtml(chain.sembol)} TVL</span>
+          <span class="text-[11px] font-bold tabular-nums ${dirCls}">${chain.degisim_24s_yuzde >= 0 ? "+" : ""}${chain.degisim_24s_yuzde.toFixed(2)}%</span>
         </div>
-        <span class="flex items-center gap-2">
-          <span class="text-[11px] font-bold tabular-nums text-[#364153]">${fmtUsdCompact(chain.tvl_usd)}</span>
-          <span class="text-[11px] font-bold tabular-nums ${dirCls}">${changeSign}${change.toFixed(2)}%</span>
-        </span>
+        <p class="text-[11px] font-medium text-[#364153]">${escapeHtml(chain.sembol)} zincirinde kilitli değer (TVL) 24 saatte %${Math.abs(chain.degisim_24s_yuzde).toFixed(2)} ${fiil} (${fmtUsdCompact(chain.tvl_usd)}) — ${anlam}.</p>
+      </div>`;
+  }
+
+  function stablecoinReferenceRowHtml(sc) {
+    const change = sc.degisim_24s_yuzde;
+    return `
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-[10px] font-bold text-[#6a7282]">${escapeHtml(sc.sembol)} Küresel Arz</span>
+        <span class="text-[10px] font-medium tabular-nums text-[#6a7282]">${fmtUsdCompact(sc.dolasimdaki_arz_usd)} · ${change >= 0 ? "+" : ""}${change.toFixed(2)}%</span>
+      </div>`;
+  }
+
+  function chainTvlReferenceRowHtml(chain) {
+    const change = chain.degisim_24s_yuzde;
+    return `
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-[10px] font-bold text-[#6a7282]">${escapeHtml(chain.sembol)} TVL</span>
+        <span class="text-[10px] font-medium tabular-nums text-[#6a7282]">${fmtUsdCompact(chain.tvl_usd)} · ${change >= 0 ? "+" : ""}${change.toFixed(2)}%</span>
       </div>`;
   }
 
@@ -964,13 +986,29 @@
       intelPanelOnchain.innerHTML = `<p class="text-xs font-semibold text-[#6a7282] text-center py-4">Henüz veri yok.</p>`;
       return;
     }
+    const sc = snapshot.stablecoin;
+    const zincirler = snapshot.zincirler || [];
+    const scIsEvent = sc && sc.yon !== "sabit";
+    const eventChains = zincirler.filter((c) => c.yon !== "sabit");
+    const eventCount = (scIsEvent ? 1 : 0) + eventChains.length;
+
     const parts = [];
-    if (snapshot.stablecoin) parts.push(stablecoinCardHtml(snapshot.stablecoin));
-    if (snapshot.zincirler?.length) {
-      parts.push(`
-        <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282]">Zincir TVL (24s değişim)</p>
-        <div class="flex flex-col gap-1.5">${snapshot.zincirler.map(chainTvlRowHtml).join("")}</div>`);
+    if (eventCount) {
+      parts.push(`<p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282]">${eventCount} Olay Tespit Edildi</p>`);
+      const eventCards = [];
+      if (scIsEvent) eventCards.push(stablecoinEventHtml(sc));
+      eventChains.forEach((c) => eventCards.push(chainTvlEventHtml(c)));
+      parts.push(`<div class="flex flex-col gap-1.5">${eventCards.join("")}</div>`);
+    } else {
+      parts.push(`<p class="text-xs font-semibold text-[#6a7282]">Şu an eşiği aşan bir on-chain hareket yok — göstergeler stabil.</p>`);
     }
+
+    parts.push(`<p class="text-[10px] font-extrabold uppercase tracking-wide text-[#6a7282] pt-1">Referans Değerler</p>`);
+    const refRows = [];
+    if (sc) refRows.push(stablecoinReferenceRowHtml(sc));
+    zincirler.forEach((c) => refRows.push(chainTvlReferenceRowHtml(c)));
+    parts.push(`<div class="flex flex-col gap-1">${refRows.join("")}</div>`);
+
     intelPanelOnchain.innerHTML = parts.join("");
   }
 
