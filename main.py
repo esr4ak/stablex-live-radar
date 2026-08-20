@@ -470,6 +470,18 @@ def _entry_published_at(entry):
     return datetime.fromtimestamp(calendar.timegm(struct), tz=timezone.utc) if struct else None
 
 
+def _rss_ozet_temizle(raw_summary: str) -> str:
+    """RSS'in "summary" alanı kaynağa göre çok değişken kalitede: bazen
+    gerçek bir açıklama, bazen boş, bazen (CoinGecko'nun bazı yazılarında
+    olduğu gibi) HTML/kod bloğu çöpü. HTML etiketlerini temizler ve makul
+    bir uzunlukta kırpar — Gemini'ye "başlıktan tahmin et" yerine gerçek
+    bir bağlam vermek için (bkz. analyze_with_gemini)."""
+    if not raw_summary:
+        return ""
+    text = BeautifulSoup(raw_summary, "lxml").get_text(" ", strip=True)
+    return text[:600]
+
+
 def fetch_rss_source(source: dict) -> list[dict]:
     parsed = feedparser.parse(source["url"])
     items = []
@@ -482,6 +494,7 @@ def fetch_rss_source(source: dict) -> list[dict]:
             "kategori": source["kategori"],
             "url": entry.get("link"),
             "published_at": _entry_published_at(entry),
+            "kaynak_ozeti": _rss_ozet_temizle(entry.get("summary", "")),
         })
     return items
 
@@ -643,7 +656,7 @@ kripto/finans haberini analiz et ve SADECE şu JSON formatında yanıt ver:
 
 {{
   "baslik_tr": "Haber başlığının doğal, akıcı Türkçe çevirisi (zaten Türkçeyse aynen bırak)",
-  "ozet_tr": "2 cümlelik Türkçe özet",
+  "ozet_tr": "Kaynak Özeti sağlandıysa onun sadık/birebir Türkçe çevirisi (yorum/ekleme YOK); sağlanmadıysa SADECE başlığın Türkçe çevirisi (tek cümle, ikinci bir yorum cümlesi EKLEME)",
   "stablex_etiketi": "kampanya_firsati" | "risk_uyarisi" | "regulasyon"
                       | "genel_farkindalik" | "onemsiz",
   "ilgili_varliklar": ["BTC", "ETH", ...],
@@ -682,6 +695,16 @@ Dil ve kalite kuralları:
   sessizce tekrar oku, uydurma/bozuk kelime varsa düzelt.
 - Klişe, abartılı pazarlama dili kullanma; sakin, güvenilir, bilgilendirici
   bir kurumsal ton kullan.
+- HALÜSİNASYON YASAĞI (EN KRİTİK KURAL — "ozet_tr" için): "ozet_tr" bir
+  ÇEVİRİ görevidir, bir "özetleme/yorumlama" görevi DEĞİL. Sana bir
+  "Kaynak Özeti" verildiyse, "ozet_tr" o metnin sadık/birebir Türkçe
+  çevirisi olmalı — kendi yorumunu, "bu gelişme şunu gösteriyor" tarzı
+  ek bir sonuç cümlesini, ya da Kaynak Özeti'nde OLMAYAN hiçbir sayı/
+  tarih/isim/neden-sonuç ilişkisini EKLEME. "Kaynak Özeti" sağlanmadıysa
+  (bu haber için RSS özeti mevcut değil notu görürsen), "ozet_tr" SADECE
+  başlığın Türkçe çevirisi olsun — ikinci bir yorum/tahmin cümlesi
+  UYDURMA, boş dolgu cümle ekleme. Kısa ve sadık olmak, uzun ve
+  "zengin görünen" ama uydurma olmaktan her zaman iyidir.
 
 Türkiye kripto reklam/pazarlama uyumluluk kuralları (TÜM içerik önerileri için
 geçerli — push/email/blog/sosyal fark etmez):
@@ -752,7 +775,15 @@ def _normalize_analysis(analysis: dict) -> dict:
 
 
 def analyze_with_gemini(item: dict) -> dict:
+    kaynak_ozeti = item.get("kaynak_ozeti", "")
     news_text = f"Title: {item['title']}\nSource: {item['source']}\nURL: {item['url']}"
+    if kaynak_ozeti:
+        news_text += f"\nKaynak Özeti (RSS'ten, gerçek): {kaynak_ozeti}"
+    else:
+        # RSS bu haber için özet vermedi — SYSTEM_PROMPT'a bunu açıkça
+        # bildiriyoruz ki model "başlıktan tahmin ettim" yerine "özet
+        # verisi yok" olduğunu bilerek temkinli yazsın.
+        news_text += "\nKaynak Özeti: (bu haber için RSS özeti mevcut değil — SADECE başlıktan çıkarılabilecek en genel/güvenli bilgiyle sınırlı kal)"
     raw = _call_gemini(news_text)
     return _normalize_analysis(_extract_json(raw))
 
