@@ -12,22 +12,19 @@
 #                     vekil bir akış. Gürültü riski RSS'e göre daha yüksek.
 #   "spk_html"     — SPK'nın RSS'i yok, resmi duyuru sayfası BeautifulSoup
 #                     ile taranıyor (özel parser main.py'de fetch_spk()).
+# KAPSAM KARARI (2026-08-19): Ürünün asıl hedefi kullanıcılara doğrudan
+# push edilecek bir haber akışı — bu yüzden Küresel/Yerel kaynaklar
+# BİLEREK sadece büyük/güvenilir marka isimleriyle sınırlandı (CoinGecko,
+# The Block, CoinDesk). CoinMarketCap istendi ama çalışan bir genel RSS
+# uç noktası bulunamadı (resmi destek sayfaları Cloudflare arkasında,
+# tahmin edilen URL'ler 404 döndü) — gerçek bir link bulununca eklenebilir.
+# Regülasyon kaynakları (SPK/SEC) bu kısıtlamanın DIŞINDA tutuldu — onlar
+# genel haber değil, ayrı bir amaç (uyum takibi) için var.
 WHITELIST_SOURCES = [
     # --- Küresel ---
     {"name": "The Block", "type": "rss", "url": "https://www.theblock.co/rss.xml", "kategori": "Küresel"},
     {"name": "CoinDesk", "type": "rss", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/", "kategori": "Küresel"},
-    {"name": "Cointelegraph", "type": "rss", "url": "https://cointelegraph.com/rss", "kategori": "Küresel"},
-    {"name": "Decrypt", "type": "rss", "url": "https://decrypt.co/feed", "kategori": "Küresel"},
-    {"name": "CryptoSlate", "type": "rss", "url": "https://cryptoslate.com/feed/", "kategori": "Küresel"},
-    {"name": "BeInCrypto", "type": "rss", "url": "https://beincrypto.com/feed/", "kategori": "Küresel"},
-    {"name": "U.Today", "type": "rss", "url": "https://u.today/rss", "kategori": "Küresel"},
-    {"name": "Blockworks", "type": "rss", "url": "https://blockworks.co/feed", "kategori": "Küresel"},
-    {"name": "Reuters", "type": "google_news", "query": "site:reuters.com finance markets", "kategori": "Küresel"},
-    # --- Yerel (Türkiye) ---
-    {"name": "Bloomberg HT", "type": "rss", "url": "https://www.bloomberght.com/rss", "kategori": "Yerel"},
-    {"name": "Uzmancoin", "type": "rss", "url": "https://uzmancoin.com/feed/", "kategori": "Yerel"},
-    {"name": "Koinbülteni", "type": "rss", "url": "https://koinbulteni.com/feed/", "kategori": "Yerel"},
-    {"name": "Foreks Haber", "type": "google_news", "query": "Foreks piyasa haberleri", "kategori": "Yerel"},
+    {"name": "CoinGecko", "type": "rss", "url": "https://www.coingecko.com/rss", "kategori": "Küresel"},
     # --- Regülasyon kurumları ---
     {"name": "SPK", "type": "spk_html", "kategori": "Regülasyon"},
     {"name": "SEC", "type": "rss", "url": "https://www.sec.gov/news/pressreleases.rss", "kategori": "Regülasyon"},
