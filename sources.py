@@ -51,15 +51,17 @@ REGULATORY_LINKS = [
     {"name": "Hazine ve Maliye Bakanlığı", "url": "https://www.hmb.gov.tr/haberler"},
 ]
 
-# Stablex'te listeli 61 varlık — Gemini'nin ürettiği "ilgili_varliklar" bu
-# listeyle kesiştirilip filtrelenir.
+# Stablex'te listeli 63 varlık — Gemini'nin ürettiği "ilgili_varliklar" bu
+# listeyle kesiştirilip filtrelenir. Kaynak: stablex.com.tr/piyasalar
+# (2026-08-20'de canlı doğrulandı — USDC ve PUMP yeni eklendi).
 STABLEX_COINS = [
     "AAVE", "ADA", "ALGO", "ANKR", "APE", "ARB", "ATOM", "AUDIO", "AVAX", "AXS",
     "BAT", "BONK", "BTC", "CHZ", "COMP", "CRV", "DOGE", "DOT", "EIGEN", "ENS",
     "ETHFI", "ETH", "FET", "FLOKI", "GALA", "GRT", "IMX", "IO", "JASMY", "JTO",
     "JUP", "LDO", "LINK", "LPT", "LTC", "MANA", "ONDO", "PAXG", "PENDLE", "PENGU",
-    "PEPE", "POL", "PYTH", "RENDER", "SAND", "SHIB", "SOL", "STORJ", "STRK", "STX",
-    "TRX", "UNI", "USDT", "WIF", "WLD", "W", "XLM", "XRP", "XTZ", "ZRO", "ZRX",
+    "PEPE", "POL", "PUMP", "PYTH", "RENDER", "SAND", "SHIB", "SOL", "STORJ", "STRK",
+    "STX", "TRX", "UNI", "USDC", "USDT", "WIF", "WLD", "W", "XLM", "XRP",
+    "XTZ", "ZRO", "ZRX",
 ]
 
 # Stablex sembolü -> CoinGecko coin id (canlı fiyat şeridi için gerekli).
@@ -77,9 +79,9 @@ STABLEX_COIN_IDS = {
     "LPT": "livepeer", "LTC": "litecoin", "MANA": "decentraland",
     "ONDO": "ondo-finance", "PAXG": "pax-gold", "PENDLE": "pendle",
     "PENGU": "pudgy-penguins", "PEPE": "pepe", "POL": "polygon-ecosystem-token",
-    "PYTH": "pyth-network", "RENDER": "render-token", "SAND": "the-sandbox",
+    "PUMP": "pump-fun", "PYTH": "pyth-network", "RENDER": "render-token", "SAND": "the-sandbox",
     "SHIB": "shiba-inu", "SOL": "solana", "STORJ": "storj", "STRK": "starknet",
-    "STX": "blockstack", "TRX": "tron", "UNI": "uniswap", "USDT": "tether",
+    "STX": "blockstack", "TRX": "tron", "UNI": "uniswap", "USDC": "usd-coin", "USDT": "tether",
     "WIF": "dogwifcoin", "WLD": "worldcoin-wld", "W": "wormhole", "XLM": "stellar",
     "XRP": "ripple", "XTZ": "tezos", "ZRO": "layerzero", "ZRX": "0x",
 }
