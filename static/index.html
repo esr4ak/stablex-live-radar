@@ -489,19 +489,33 @@
     });
   }
 
+  // Birincil kart görünümü SADECE gerçek okuyucunun "ne oldu"yu anlaması
+  // için gereken şeyleri gösterir (zaman, kategori, başlık, özet, ilgili
+  // coinler, kaynak) — etiket rozeti, aksiyon noktası ve push/email/blog/
+  // sosyal taslakları marketing-içi araçlar, bunlar kaybolmuyor ama
+  // "Marketing Detayları" adlı ayrı bir akordeona taşındı (bkz.
+  // marketingDetailsHtml) ki gerçek kullanıcı ekranı marketing jargonuyla
+  // kalabalıklaşmasın.
+  function marketingDetailsHtml(item) {
+    const etiketPill = `<span class="text-[11px] font-bold text-[#364153] bg-[#f9fafb] rounded-full px-3 py-1 self-start">${escapeHtml(LABELS[item.stablex_etiketi] || item.stablex_etiketi)}</span>`;
+    const actions = marketingActionsHtml(item);
+    return `
+      <details class="rounded-lg border border-[#e4e4e4] px-3" data-channel="__marketing_details__">
+        <summary class="list-none cursor-pointer flex items-center justify-between gap-2 py-2 text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282]">
+          Marketing Detayları
+          <span class="chevron text-[#6a7282] transition-transform duration-200 text-[10px]">▾</span>
+        </summary>
+        <div class="pb-3 flex flex-col gap-2">
+          ${etiketPill}
+          ${actions}
+        </div>
+      </details>`;
+  }
+
   function renderNewsCard(item) {
     const assets = (item.ilgili_varliklar || [])
       .map((a) => `<span class="text-[11px] font-bold tabular-nums text-[#364153] bg-[#f9fafb] rounded-md px-2 py-1">${escapeHtml(a)}</span>`)
       .join("");
-
-    // Aksiyon göstergesi: içerik önerisi (push/email/blog/sosyal) olan
-    // kartları, header'daki STABLEX noktasıyla aynı görsel dilde küçük bir
-    // noktayla işaretler — ekip taramada "hangi haberde aksiyon alınabilir
-    // bir öneri var" sorusunu okumadan, tek bakışta ayırt edebilsin diye.
-    const hasActions = (item.onerilen_kanallar || []).length > 0;
-    const actionDot = hasActions
-      ? `<span class="w-1.5 h-1.5 rounded-full bg-[#dc0005]" title="İçerik önerisi mevcut"></span>`
-      : "";
 
     const card = document.createElement("article");
     card.className = "bg-[#fff] rounded-2xl p-6 flex flex-col gap-4 opacity-0 animate-fade-in shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]";
@@ -509,22 +523,18 @@
 
     card.innerHTML = `
       <div class="flex items-center justify-between gap-3">
-        <span class="flex items-center gap-1.5">
-          <span class="text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282]">${escapeHtml(item.kategori)}</span>
-          ${actionDot}
-        </span>
+        <span class="text-[11px] font-extrabold uppercase tracking-wide text-[#6a7282]">${escapeHtml(item.kategori)}</span>
         <time class="text-[11px] font-medium text-[#6a7282] tabular-nums">${fmtTime(item.yayin_zamani)}</time>
       </div>
-      <span class="text-[11px] font-bold text-[#364153] bg-[#f9fafb] rounded-full px-3 py-1 self-start">${escapeHtml(LABELS[item.stablex_etiketi] || item.stablex_etiketi)}</span>
       <h3 class="text-[15px] font-bold text-[#000] leading-snug">${escapeHtml(item.baslik_tr)}</h3>
       <p class="text-[13.5px] font-medium text-[#364153] leading-relaxed">${escapeHtml(item.ozet_tr)}</p>
       ${assets ? `<div class="flex flex-wrap gap-2">${assets}</div>` : ""}
-      ${marketingActionsHtml(item)}
-      <div class="pt-1">
+      <div class="pt-1 flex items-center justify-between gap-3 flex-wrap">
         <a href="${safeUrl(item.kaynak_url)}" target="_blank" rel="noopener" class="text-[13px] font-bold text-[#dc0005] hover:opacity-70 transition-opacity duration-200">
           ${item.kaynak ? `${escapeHtml(item.kaynak)} — ` : ""}Kaynağı görüntüle →
         </a>
       </div>
+      ${marketingDetailsHtml(item)}
     `;
     return card;
   }
