@@ -65,6 +65,7 @@ Gerekli ortam değişkenleri:
 import asyncio
 import calendar
 import hashlib
+import html as html_lib
 import json
 import os
 import re
@@ -1824,6 +1825,128 @@ async def daily_digest() -> dict:
         "yukselenler": _digest_yukselenler(),
         "x_gundemi": _digest_x_gundemi(simdi),
     }
+
+
+DIGEST_ETIKET_LABELS = {
+    "kampanya_firsati": "Kampanya Fırsatı",
+    "risk_uyarisi": "Risk Uyarısı",
+    "regulasyon": "Regülasyon",
+    "rakip_hareketi": "Rakip Hareketi",
+    "genel_farkindalik": "Genel Farkındalık",
+}
+_TR_MONTH_NAMES = {v: k for k, v in _TR_MONTHS.items()}
+
+
+def _digest_fmt_zaman(iso_str: str | None) -> str:
+    if not iso_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except ValueError:
+        return ""
+    return f"{dt.day} {_TR_MONTH_NAMES.get(dt.month, '')} {dt.strftime('%H:%M')}"
+
+
+def _digest_haber_card_html(haber: dict) -> str:
+    etiket_label = DIGEST_ETIKET_LABELS.get(haber["etiket"], haber["etiket"] or "")
+    varliklar = " · ".join(html_lib.escape(v) for v in haber["ilgili_varliklar"])
+    kaynak_link = (
+        f'<a href="{html_lib.escape(haber["kaynak_url"])}" target="_blank" rel="noopener" '
+        f'style="color:#dc0005;font-weight:700;text-decoration:none;">{html_lib.escape(haber["kaynak"] or "")} — Kaynağı gör →</a>'
+        if haber.get("kaynak_url") else html_lib.escape(haber.get("kaynak") or "")
+    )
+    return f"""
+      <div style="background:#fff;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:8px;box-shadow:0 1px 2px rgba(16,24,40,0.04),0 4px 16px -4px rgba(16,24,40,0.06);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#6a7282;background:#f9fafb;padding:4px 10px;border-radius:999px;">{html_lib.escape(etiket_label)}</span>
+          <span style="font-size:11px;font-weight:600;color:#6a7282;">{html_lib.escape(_digest_fmt_zaman(haber["yayin_zamani"]))}</span>
+        </div>
+        <h3 style="font-size:15px;font-weight:800;color:#000;margin:0;">{html_lib.escape(haber["baslik"])}</h3>
+        <p style="font-size:13px;color:#364153;line-height:1.5;margin:0;">{html_lib.escape(haber["ozet"])}</p>
+        {f'<p style="font-size:11px;font-weight:700;color:#6a7282;margin:0;">{varliklar}</p>' if varliklar else ""}
+        <p style="font-size:12px;margin:4px 0 0 0;">{kaynak_link}</p>
+      </div>"""
+
+
+def _digest_gainer_row_html(g: dict) -> str:
+    return f"""
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#f9fafb;border-radius:12px;">
+        <span style="font-size:13px;font-weight:800;color:#000;">{html_lib.escape(g["sembol"])}</span>
+        <span style="font-size:13px;font-weight:700;color:#00c758;">▲ {g["degisim_24s"]:.2f}%</span>
+      </div>"""
+
+
+_DIGEST_YON_LABEL = {"olumlu": "Olumlu", "olumsuz": "Olumsuz", "notr": "Nötr"}
+
+
+def _digest_x_row_html(item: dict) -> str:
+    yon = item.get("yon")
+    renk = "#00c758" if yon == "olumlu" else "#fb2c36" if yon == "olumsuz" else "#6a7282"
+    ozet = html_lib.escape(item.get("ozet") or "")
+    return f"""
+      <div style="background:#f9fafb;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <span style="font-size:13px;font-weight:800;color:#000;">{html_lib.escape(item["ticker"])}</span>
+          <span style="font-size:11px;font-weight:700;color:{renk};">{_DIGEST_YON_LABEL.get(yon, "")}</span>
+        </div>
+        {f'<p style="font-size:12px;color:#364153;margin:0;">{ozet}</p>' if ozet else ""}
+      </div>"""
+
+
+@app.get("/daily-digest", response_class=HTMLResponse)
+async def daily_digest_html() -> str:
+    """/api/daily-digest'in aynı verisini, marketing ekibinin doğrudan
+    ekranda görüp değerlendirebileceği (kopyala-yapıştır yerine) render
+    edilmiş bir sayfa olarak sunar — her haberin kaynağına giden link
+    dahil. Ayrı bir AI çağrısı yapmıyor, /api/daily-digest ile aynı
+    veriyi kullanıyor."""
+    simdi = datetime.now(timezone.utc)
+    haberler = _digest_haberler(simdi)
+    yukselenler = _digest_yukselenler()
+    x_gundemi = _digest_x_gundemi(simdi)
+
+    haber_html = (
+        "\n".join(_digest_haber_card_html(h) for h in haberler)
+        if haberler else '<p style="color:#6a7282;font-size:13px;">Son 24 saatte önemli bir haber yok.</p>'
+    )
+    gainer_html = (
+        "\n".join(_digest_gainer_row_html(g) for g in yukselenler)
+        if yukselenler else '<p style="color:#6a7282;font-size:13px;">Şu an yükselen coin yok.</p>'
+    )
+    x_html = (
+        "\n".join(_digest_x_row_html(i) for i in x_gundemi)
+        if x_gundemi else '<p style="color:#6a7282;font-size:13px;">Şu an öne çıkan X gündemi yok.</p>'
+    )
+
+    return f"""<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stablex Günlük Bülten</title>
+</head>
+<body style="margin:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="background:#000;padding:24px 20px;">
+    <h1 style="color:#fff;font-size:20px;font-weight:800;margin:0;">STABLEX <span style="color:#dc0005;">●</span> Günlük Bülten</h1>
+    <p style="color:#e4e4e4;font-size:12px;margin:6px 0 0 0;">Oluşturulma: {html_lib.escape(_digest_fmt_zaman(simdi.isoformat()))}</p>
+  </div>
+  <div style="max-width:640px;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:28px;">
+    <section style="display:flex;flex-direction:column;gap:12px;">
+      <h2 style="font-size:16px;font-weight:800;color:#000;margin:0;">Öne Çıkan Haberler</h2>
+      {haber_html}
+    </section>
+    <section style="display:flex;flex-direction:column;gap:8px;">
+      <h2 style="font-size:16px;font-weight:800;color:#000;margin:0;">Yükselenler</h2>
+      {gainer_html}
+    </section>
+    <section style="display:flex;flex-direction:column;gap:8px;">
+      <h2 style="font-size:16px;font-weight:800;color:#000;margin:0;">X Gündemi</h2>
+      {x_html}
+    </section>
+    <p style="font-size:11px;color:#6a7282;text-align:center;">Bu sayfa otomatik oluşturuldu — ham veri için <a href="/api/daily-digest" style="color:#dc0005;">/api/daily-digest</a></p>
+  </div>
+</body>
+</html>"""
 
 
 @app.websocket("/ws")
