@@ -1042,6 +1042,12 @@ Kurallar:
   göre daha güvenilir bir sinyaldir çünkü kullanıcı bilinçli olarak o varlığı işaretlemiş
   olur — ama tek başına yeterli değil, gönderinin içeriği de gerçekten o coinle ilgili
   olmalı.
+- HESAP ÖNCELİĞİ: Alakalı adaylar arasında seçim yaparken, BÜYÜK/ETKİLİ hesapları
+  (yüksek takipçili, tanınmış kripto influencer/kurum/analist hesapları) küçük/anonim
+  hesaplara TERCİH ET — marketing ekibi "kim konuşuyor" bilgisine önem veriyor. Ama bu,
+  alaka şartından ÖNCELİKLİ DEĞİL: küçük ama gerçekten alakalı bir gönderi, büyük ama
+  alakasız bir gönderiye her zaman tercih edilir. Yeterince büyük hesap bulamazsan
+  bunu uydurma, elindeki en alakalı gönderilerle devam et.
 - "genel_yon": SADECE "olumlu", "olumsuz" ya da "notr" — bulduğun gönderilerin
   TOPLAMINDAN çıkardığın genel izlenim (marketing ekibi tek bakışta "bugün X'te bu
   coin hakkında hava nasıl" diye soracak, tek tek gönderi okumadan cevap bu alan).
@@ -1073,7 +1079,11 @@ Kurallar:
     gönderi bulamazsan bu türü atla, uydurma.
 - "tur": SADECE "yeni", "etkilesimli" ya da "yukseliste" — her gönderi için hangi
   sebeple seçtiğini belirt.
-- "metin": gönderinin TAMAMI değil, en fazla 200 karakterlik bir alıntı.
+- "metin": gönderinin TAMAMININ değil, en fazla 200 karakterlik bir alıntının SADIK
+  Türkçe çevirisi (gönderi hangi dilde olursa olsun — İngilizce, Türkçe, fark etmez,
+  "metin" HER ZAMAN Türkçe olmalı). Bu bir çeviridir, bir yorumlama/özetleme DEĞİL —
+  gönderide OLMAYAN hiçbir şey ekleme, gönderide olan hiçbir şeyi çıkarma. Gönderi
+  zaten Türkçeyse olduğu gibi bırak.
 - "url": GERÇEKTEN bulduğun gönderinin tam X linki — ZORUNLU. Gerçek bir link
   bulamadığın bir gönderiyi listeye HİÇ EKLEME, uydurma link kesinlikle yasak.
 - Bu ticker hakkında gerçek/ilgili gönderi bulamazsan boş liste döndür — bu durumda
