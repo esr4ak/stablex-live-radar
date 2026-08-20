@@ -1736,17 +1736,16 @@ DIGEST_X_PENCERE_SAAT = 48  # X Keşif günde 1 kez çalışır — 48s, bir son
                              # tarama gecikirse "dün bulunan" veriyi de kapsasın diye
 
 
-def _digest_haberler(simdi: "datetime", limit: int = 10) -> list[dict]:
-    """Marketing'in "haberler + yükselenler" mail taslağı için son
-    DIGEST_HABER_PENCERE_SAAT içindeki, "onemsiz" ETİKETLİ OLMAYAN haberleri
-    döner (en yeniden eskiye, en fazla `limit` tane — 24s'lik pencerede
-    onlarca haber birikebiliyor, bir mail için makul bir sayıya kesiyoruz).
-    Her haberin zaten kendi Gemini analizinde bir "email" içerik önerisi
-    var (bkz. SYSTEM_PROMPT — icerik_onerisi.email) — bunu ayrıca
-    uydurmuyoruz, varsa aynen taşıyoruz."""
-    kesim = simdi - timedelta(hours=DIGEST_HABER_PENCERE_SAAT)
+def _haberler_araliginda(baslangic: "datetime", bitis: "datetime", limit: int) -> list[dict]:
+    """[baslangic, bitis] UTC aralığındaki, "onemsiz" ETİKETLİ OLMAYAN
+    haberleri döner (en yeniden eskiye, en fazla `limit` tane). Hem
+    "son N saat" tabanlı /api/daily-digest'in hem de sabit saat
+    dilimlerine (00:00-12:00 / 12:00-24:00 TR) bağlı sabah/akşam
+    bültenlerinin ortak filtresi. Her haberin zaten kendi Gemini
+    analizinde bir "email" içerik önerisi var (bkz. SYSTEM_PROMPT —
+    icerik_onerisi.email) — bunu ayrıca uydurmuyoruz, varsa aynen taşıyoruz."""
     sonuc = []
-    for haber in db_load_recent(50):
+    for haber in db_load_recent(80):
         if len(sonuc) >= limit:
             break
         if haber.get("stablex_etiketi") == "onemsiz":
@@ -1755,7 +1754,7 @@ def _digest_haberler(simdi: "datetime", limit: int = 10) -> list[dict]:
             yayin_zamani = datetime.fromisoformat(haber.get("yayin_zamani", ""))
         except ValueError:
             continue
-        if yayin_zamani < kesim:
+        if not (baslangic <= yayin_zamani <= bitis):
             continue
         kanallar = haber.get("onerilen_kanallar") or []
         email_onerisi = (haber.get("icerik_onerisi") or {}).get("email") if "email" in kanallar else None
@@ -1770,6 +1769,36 @@ def _digest_haberler(simdi: "datetime", limit: int = 10) -> list[dict]:
             "email_onerisi": email_onerisi,
         })
     return sonuc
+
+
+def _digest_haberler(simdi: "datetime", limit: int = 10) -> list[dict]:
+    """Marketing'in "haberler + yükselenler" mail taslağı için son
+    DIGEST_HABER_PENCERE_SAAT içindeki haberleri döner (24s'lik pencerede
+    onlarca haber birikebiliyor, bir mail için makul bir sayıya kesiyoruz)."""
+    return _haberler_araliginda(simdi - timedelta(hours=DIGEST_HABER_PENCERE_SAAT), simdi, limit)
+
+
+TR_TZ = timezone(timedelta(hours=3))  # Türkiye DST uygulamıyor, sabit UTC+3
+
+
+def _bulten_araligi(tur: str, simdi_utc: "datetime") -> tuple["datetime", "datetime"]:
+    """"sabah" (00:00-12:00 TR) ya da "aksam" (12:00-24:00 TR) baskısının
+    zaman aralığını UTC olarak döner. İstek o baskının penceresi İÇİNDE
+    gelirse bitiş "şu an" olur (baskı devam ediyor, büyümeye devam eder);
+    pencere henüz BAŞLAMADIYSA (ör. saat 09:00'da akşam bülteni istenirse)
+    bir önceki TAMAMLANMIŞ baskı gösterilir — boş sayfa yerine "bir
+    önceki baskı" her zaman daha kullanışlı."""
+    simdi_tr = simdi_utc.astimezone(TR_TZ)
+    bugun_00 = simdi_tr.replace(hour=0, minute=0, second=0, microsecond=0)
+    bugun_12 = bugun_00 + timedelta(hours=12)
+    if tur == "sabah":
+        baslangic, bitis = bugun_00, min(bugun_12, simdi_tr)
+    else:
+        if simdi_tr < bugun_12:
+            baslangic, bitis = bugun_12 - timedelta(days=1), bugun_00
+        else:
+            baslangic, bitis = bugun_12, simdi_tr
+    return baslangic.astimezone(timezone.utc), bitis.astimezone(timezone.utc)
 
 
 def _digest_yukselenler(limit: int = 5) -> list[dict]:
@@ -1838,12 +1867,17 @@ _TR_MONTH_NAMES = {v: k for k, v in _TR_MONTHS.items()}
 
 
 def _digest_fmt_zaman(iso_str: str | None) -> str:
+    """TR kullanıcılarına gösterilecek her zaman TR saatiyle (UTC+3)
+    formatlanır — DB'deki yayin_zamani değerleri UTC olarak saklanıyor,
+    burada çevrilmezse (ör. sabah/akşam bülteni saat sınırları gibi)
+    kullanıcıya yanlış/kafa karıştırıcı bir saat gösterilirdi."""
     if not iso_str:
         return ""
     try:
         dt = datetime.fromisoformat(iso_str)
     except ValueError:
         return ""
+    dt = dt.astimezone(TR_TZ)
     return f"{dt.day} {_TR_MONTH_NAMES.get(dt.month, '')} {dt.strftime('%H:%M')}"
 
 
@@ -1893,21 +1927,13 @@ def _digest_x_row_html(item: dict) -> str:
       </div>"""
 
 
-@app.get("/daily-digest", response_class=HTMLResponse)
-async def daily_digest_html() -> str:
-    """/api/daily-digest'in aynı verisini, marketing ekibinin doğrudan
-    ekranda görüp değerlendirebileceği (kopyala-yapıştır yerine) render
-    edilmiş bir sayfa olarak sunar — her haberin kaynağına giden link
-    dahil. Ayrı bir AI çağrısı yapmıyor, /api/daily-digest ile aynı
-    veriyi kullanıyor."""
-    simdi = datetime.now(timezone.utc)
-    haberler = _digest_haberler(simdi)
-    yukselenler = _digest_yukselenler()
-    x_gundemi = _digest_x_gundemi(simdi)
-
+def _bulten_sayfasi_html(baslik: str, alt_baslik: str, haberler: list[dict], yukselenler: list[dict], x_gundemi: list[dict], bos_haber_metni: str) -> str:
+    """Üç bülten sayfasının (günlük, sabah, akşam) ortak render'ı — sadece
+    başlık/alt başlık ve haber listesi değişir, Yükselenler/X Gündemi
+    her zaman "şu anki" (zaman penceresiz) anlık görüntüyü gösterir."""
     haber_html = (
         "\n".join(_digest_haber_card_html(h) for h in haberler)
-        if haberler else '<p style="color:#6a7282;font-size:13px;">Son 24 saatte önemli bir haber yok.</p>'
+        if haberler else f'<p style="color:#6a7282;font-size:13px;">{html_lib.escape(bos_haber_metni)}</p>'
     )
     gainer_html = (
         "\n".join(_digest_gainer_row_html(g) for g in yukselenler)
@@ -1917,18 +1943,17 @@ async def daily_digest_html() -> str:
         "\n".join(_digest_x_row_html(i) for i in x_gundemi)
         if x_gundemi else '<p style="color:#6a7282;font-size:13px;">Şu an öne çıkan X gündemi yok.</p>'
     )
-
     return f"""<!doctype html>
 <html lang="tr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stablex Günlük Bülten</title>
+<title>{html_lib.escape(baslik)}</title>
 </head>
 <body style="margin:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="background:#000;padding:24px 20px;">
-    <h1 style="color:#fff;font-size:20px;font-weight:800;margin:0;">STABLEX <span style="color:#dc0005;">●</span> Günlük Bülten</h1>
-    <p style="color:#e4e4e4;font-size:12px;margin:6px 0 0 0;">Oluşturulma: {html_lib.escape(_digest_fmt_zaman(simdi.isoformat()))}</p>
+    <h1 style="color:#fff;font-size:20px;font-weight:800;margin:0;">STABLEX <span style="color:#dc0005;">●</span> {html_lib.escape(baslik)}</h1>
+    <p style="color:#e4e4e4;font-size:12px;margin:6px 0 0 0;">{html_lib.escape(alt_baslik)}</p>
   </div>
   <div style="max-width:640px;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:28px;">
     <section style="display:flex;flex-direction:column;gap:12px;">
@@ -1947,6 +1972,58 @@ async def daily_digest_html() -> str:
   </div>
 </body>
 </html>"""
+
+
+@app.get("/daily-digest", response_class=HTMLResponse)
+async def daily_digest_html() -> str:
+    """/api/daily-digest'in aynı verisini, marketing ekibinin doğrudan
+    ekranda görüp değerlendirebileceği (kopyala-yapıştır yerine) render
+    edilmiş bir sayfa olarak sunar — her haberin kaynağına giden link
+    dahil. Ayrı bir AI çağrısı yapmıyor, /api/daily-digest ile aynı
+    veriyi kullanıyor."""
+    simdi = datetime.now(timezone.utc)
+    return _bulten_sayfasi_html(
+        "Günlük Bülten",
+        f"Oluşturulma: {_digest_fmt_zaman(simdi.isoformat())} (TR)",
+        _digest_haberler(simdi),
+        _digest_yukselenler(),
+        _digest_x_gundemi(simdi),
+        "Son 24 saatte önemli bir haber yok.",
+    )
+
+
+@app.get("/sabah-bulteni", response_class=HTMLResponse)
+async def sabah_bulteni_html() -> str:
+    """00:00-12:00 (TR saati) penceresindeki haberleri gösterir — istek
+    bu pencere içindeyken "şu ana kadar", dışındayken (öğleden sonra/akşam)
+    o günün TAMAMLANMIŞ sabah baskısını gösterir (bkz. _bulten_araligi)."""
+    simdi = datetime.now(timezone.utc)
+    baslangic, bitis = _bulten_araligi("sabah", simdi)
+    return _bulten_sayfasi_html(
+        "Sabah Bülteni",
+        f"{_digest_fmt_zaman(baslangic.isoformat())} – {_digest_fmt_zaman(bitis.isoformat())} (TR)",
+        _haberler_araliginda(baslangic, bitis, limit=15),
+        _digest_yukselenler(),
+        _digest_x_gundemi(simdi),
+        "Bu sabah henüz önemli bir haber yok.",
+    )
+
+
+@app.get("/aksam-bulteni", response_class=HTMLResponse)
+async def aksam_bulteni_html() -> str:
+    """12:00-24:00 (TR saati) penceresindeki haberleri gösterir — istek
+    bu pencere BAŞLAMADAN (saat 12:00'dan önce) gelirse dünün TAMAMLANMIŞ
+    akşam baskısını gösterir, boş sayfa yerine (bkz. _bulten_araligi)."""
+    simdi = datetime.now(timezone.utc)
+    baslangic, bitis = _bulten_araligi("aksam", simdi)
+    return _bulten_sayfasi_html(
+        "Akşam Bülteni",
+        f"{_digest_fmt_zaman(baslangic.isoformat())} – {_digest_fmt_zaman(bitis.isoformat())} (TR)",
+        _haberler_araliginda(baslangic, bitis, limit=15),
+        _digest_yukselenler(),
+        _digest_x_gundemi(simdi),
+        "Bu akşam henüz önemli bir haber yok.",
+    )
 
 
 @app.websocket("/ws")
