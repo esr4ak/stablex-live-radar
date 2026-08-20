@@ -780,22 +780,32 @@ def _normalize_analysis(analysis: dict) -> dict:
     return analysis
 
 
-FULL_ARTICLE_SOURCES = {"CoinDesk"}  # basit bir GET isteğine izin veren, bot korumasız kaynaklar
+FULL_ARTICLE_SOURCES = {"CoinDesk", "SEC"}  # basit bir GET isteğine izin veren kaynaklar
 FULL_ARTICLE_MIN_LENGTH = 200  # bundan kısa çıkarılan metin muhtemelen yanlış/boş sayfa, güvenme
+
+# SEC.gov kendi "fair access" kuralında otomatik isteklerin kim olduğunu
+# belirten bir User-Agent taşımasını İSTİYOR (isim/kurum + iletişim
+# e-postası) — bunu göndermemek (jenerik "Mozilla/5.0") 403'e yol açıyordu.
+# Bu bot-koruması AŞMA değil, SEC'in kendi yayınladığı erişim kuralına
+# UYMAK — 2026-08-20'de canlı doğrulandı (403 -> 200). The Block/CoinGecko
+# bambaşka bir mekanizmayla (Cloudflare bot koruması) engelliyor, onlara
+# dokunmuyoruz.
+STABLEX_USER_AGENT = "Stablex-LiveRadar marketingstablex@gmail.com"
 
 
 def _fetch_makale_govdesi(url: str) -> str:
-    """CoinDesk gibi basit bir isteğe izin veren kaynaklarda tam makale
-    metnini çeker — RSS'in genelde boş/kısa özetinden çok daha zengin,
-    hâlâ gerçek bir bağlam sağlar. The Block/CoinGecko/SEC gibi bot
-    korumalı kaynaklar 403 döndürüyor — bunu AŞMAYA ÇALIŞMIYORUZ, sessizce
-    boş döner ve çağıran taraf RSS özetine/başlığa geri düşer."""
+    """CoinDesk/SEC gibi basit (ve SEC için kimliğini belirten) bir isteğe
+    izin veren kaynaklarda tam makale metnini çeker — RSS'in genelde boş/
+    kısa özetinden çok daha zengin, hâlâ gerçek bir bağlam sağlar. The
+    Block/CoinGecko gibi Cloudflare bot korumalı kaynaklar 403 döndürüyor
+    — bunu AŞMAYA ÇALIŞMIYORUZ, sessizce boş döner ve çağıran taraf RSS
+    özetine/başlığa geri düşer."""
     try:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        response = requests.get(url, headers={"User-Agent": STABLEX_USER_AGENT}, timeout=15)
         if response.status_code != 200:
             return ""
         soup = BeautifulSoup(response.text, "lxml")
-        container = soup.find("article") or soup
+        container = soup.find("main") or soup.find("article") or soup
         text = " ".join(p.get_text(" ", strip=True) for p in container.find_all("p"))
         return text[:3000] if len(text) >= FULL_ARTICLE_MIN_LENGTH else ""
     except Exception:
