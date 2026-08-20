@@ -656,7 +656,7 @@ kripto/finans haberini analiz et ve SADECE şu JSON formatında yanıt ver:
 
 {{
   "baslik_tr": "Haber başlığının doğal, akıcı Türkçe çevirisi (zaten Türkçeyse aynen bırak)",
-  "ozet_tr": "Kaynak Özeti sağlandıysa onun sadık/birebir Türkçe çevirisi (yorum/ekleme YOK); sağlanmadıysa SADECE başlığın Türkçe çevirisi (tek cümle, ikinci bir yorum cümlesi EKLEME)",
+  "ozet_tr": "Kaynak Özeti KISAYSA (1-2 cümlelik bir RSS özeti) onun sadık/birebir Türkçe çevirisi; Kaynak Özeti UZUNSA (tam makale metni) o metne SIKI SIKIYA bağlı, 2-3 cümlelik gerçek bir Türkçe özet (metinde OLMAYAN hiçbir ayrıntı ekleme); Kaynak Özeti hiç YOKSA SADECE başlığın Türkçe çevirisi (tek cümle, yorum cümlesi EKLEME)",
   "stablex_etiketi": "kampanya_firsati" | "risk_uyarisi" | "regulasyon"
                       | "genel_farkindalik" | "onemsiz",
   "ilgili_varliklar": ["BTC", "ETH", ...],
@@ -695,16 +695,22 @@ Dil ve kalite kuralları:
   sessizce tekrar oku, uydurma/bozuk kelime varsa düzelt.
 - Klişe, abartılı pazarlama dili kullanma; sakin, güvenilir, bilgilendirici
   bir kurumsal ton kullan.
-- HALÜSİNASYON YASAĞI (EN KRİTİK KURAL — "ozet_tr" için): "ozet_tr" bir
-  ÇEVİRİ görevidir, bir "özetleme/yorumlama" görevi DEĞİL. Sana bir
-  "Kaynak Özeti" verildiyse, "ozet_tr" o metnin sadık/birebir Türkçe
-  çevirisi olmalı — kendi yorumunu, "bu gelişme şunu gösteriyor" tarzı
-  ek bir sonuç cümlesini, ya da Kaynak Özeti'nde OLMAYAN hiçbir sayı/
-  tarih/isim/neden-sonuç ilişkisini EKLEME. "Kaynak Özeti" sağlanmadıysa
-  (bu haber için RSS özeti mevcut değil notu görürsen), "ozet_tr" SADECE
-  başlığın Türkçe çevirisi olsun — ikinci bir yorum/tahmin cümlesi
-  UYDURMA, boş dolgu cümle ekleme. Kısa ve sadık olmak, uzun ve
-  "zengin görünen" ama uydurma olmaktan her zaman iyidir.
+- HALÜSİNASYON YASAĞI (EN KRİTİK KURAL — "ozet_tr" için): "ozet_tr"in tek
+  kaynağı sana verilen "Kaynak Özeti" (varsa) ve başlıktır — bunların
+  dışında HİÇBİR sayı/tarih/isim/neden-sonuç ilişkisi UYDURMA. Kaynak
+  Özeti KISAYSA (1-2 cümle, RSS özeti): sadık/birebir çevirisini yap,
+  yorum/sonuç cümlesi EKLEME. Kaynak Özeti UZUNSA (tam makale metni):
+  gerçek bir özet yazabilirsin ama SADECE o metinde geçen bilgileri
+  kullan, metinde olmayan hiçbir ayrıntıyı "muhtemelen böyledir" diye
+  eklemeler. Kaynak Özeti hiç YOKSA, "ozet_tr" SADECE başlığın çevirisi
+  olsun — ikinci bir yorum/tahmin cümlesi UYDURMA, boş dolgu cümle
+  ekleme. Kısa ve sadık olmak, uzun ve "zengin görünen" ama uydurma
+  olmaktan her zaman iyidir.
+- ÖZEL İSİM SADAKATİ: Şirket/kişi/proje isimlerini Kaynak Özeti'nde
+  YAZILDIĞI GİBİ, harf harf aynen kopyala — daha tanıdık/benzer bir
+  kelimeyle KARIŞTIRMA (ör. "Evernorth" adlı bir şirketi "Evernote" diye
+  yazma). Bir ismi doğru hatırlayıp hatırlamadığından emin değilsen,
+  Kaynak Özeti'ndeki yazımı tekrar kontrol et.
 
 Türkiye kripto reklam/pazarlama uyumluluk kuralları (TÜM içerik önerileri için
 geçerli — push/email/blog/sosyal fark etmez):
@@ -774,16 +780,43 @@ def _normalize_analysis(analysis: dict) -> dict:
     return analysis
 
 
+FULL_ARTICLE_SOURCES = {"CoinDesk"}  # basit bir GET isteğine izin veren, bot korumasız kaynaklar
+FULL_ARTICLE_MIN_LENGTH = 200  # bundan kısa çıkarılan metin muhtemelen yanlış/boş sayfa, güvenme
+
+
+def _fetch_makale_govdesi(url: str) -> str:
+    """CoinDesk gibi basit bir isteğe izin veren kaynaklarda tam makale
+    metnini çeker — RSS'in genelde boş/kısa özetinden çok daha zengin,
+    hâlâ gerçek bir bağlam sağlar. The Block/CoinGecko/SEC gibi bot
+    korumalı kaynaklar 403 döndürüyor — bunu AŞMAYA ÇALIŞMIYORUZ, sessizce
+    boş döner ve çağıran taraf RSS özetine/başlığa geri düşer."""
+    try:
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        if response.status_code != 200:
+            return ""
+        soup = BeautifulSoup(response.text, "lxml")
+        container = soup.find("article") or soup
+        text = " ".join(p.get_text(" ", strip=True) for p in container.find_all("p"))
+        return text[:3000] if len(text) >= FULL_ARTICLE_MIN_LENGTH else ""
+    except Exception:
+        return ""
+
+
 def analyze_with_gemini(item: dict) -> dict:
     kaynak_ozeti = item.get("kaynak_ozeti", "")
+    if item.get("source") in FULL_ARTICLE_SOURCES:
+        tam_metin = _fetch_makale_govdesi(item["url"])
+        if tam_metin:
+            kaynak_ozeti = tam_metin
+
     news_text = f"Title: {item['title']}\nSource: {item['source']}\nURL: {item['url']}"
     if kaynak_ozeti:
-        news_text += f"\nKaynak Özeti (RSS'ten, gerçek): {kaynak_ozeti}"
+        news_text += f"\nKaynak Özeti (gerçek, ya makalenin tam metni ya da RSS özeti): {kaynak_ozeti}"
     else:
-        # RSS bu haber için özet vermedi — SYSTEM_PROMPT'a bunu açıkça
-        # bildiriyoruz ki model "başlıktan tahmin ettim" yerine "özet
-        # verisi yok" olduğunu bilerek temkinli yazsın.
-        news_text += "\nKaynak Özeti: (bu haber için RSS özeti mevcut değil — SADECE başlıktan çıkarılabilecek en genel/güvenli bilgiyle sınırlı kal)"
+        # Ne RSS özeti ne tam makale metni var — SYSTEM_PROMPT'a bunu
+        # açıkça bildiriyoruz ki model "başlıktan tahmin ettim" yerine
+        # "özet verisi yok" olduğunu bilerek temkinli yazsın.
+        news_text += "\nKaynak Özeti: (bu haber için ne RSS özeti ne makale metni mevcut — SADECE başlıktan çıkarılabilecek en genel/güvenli bilgiyle sınırlı kal)"
     raw = _call_gemini(news_text)
     return _normalize_analysis(_extract_json(raw))
 
