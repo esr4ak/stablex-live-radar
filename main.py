@@ -946,31 +946,10 @@ def fetch_competitor_coins_bitexen(source: dict) -> set[str]:
     }
 
 
-def fetch_competitor_coins_icrypex(source: dict) -> set[str]:
-    """ICRYPEX formatı: [{"symbol": "BTCUSDT", ...}, ...] — düz liste,
-    "/P" son eki vadeli işlem çiftlerini belirtir (ayıklanır). Taban sembolü
-    ayrıştırmak için bilinen quote para birimleri son ekten kırpılır;
-    tanımadığımız bir quote'la biten (ör. ICRYPEX'in kendi token'ıyla
-    eşleşen egzotik çiftler) sembolleri ATLIYORUZ — yanlış ayrıştırılmış
-    bir taban sembolü eklemek, hiç eklememekten daha kötü."""
-    known_quotes = ("USDT", "TRY", "USD", "BTC")
-    response = requests.get(source["url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-    response.raise_for_status()
-    symbols = set()
-    for row in response.json():
-        pair = str(row.get("symbol", "")).strip().upper().removesuffix("/P")
-        for quote in known_quotes:
-            if pair.endswith(quote) and len(pair) > len(quote):
-                symbols.add(pair[: -len(quote)])
-                break
-    return symbols
-
-
 COMPETITOR_FETCHERS = {
     "api": fetch_competitor_coins_api,
     "btcturk_api": fetch_competitor_coins_btcturk,
     "bitexen_api": fetch_competitor_coins_bitexen,
-    "icrypex_api": fetch_competitor_coins_icrypex,
 }
 
 
