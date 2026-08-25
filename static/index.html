@@ -97,8 +97,29 @@
   <!-- ============ İKİ SÜTUNLU DÜZEN ============ -->
   <div class="max-w-7xl mx-auto px-6 sm:px-10 py-8 sm:py-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-    <!-- ---------- SOL SÜTUN (geniş): Haber akışı ---------- -->
+    <!-- ---------- SOL SÜTUN (geniş): X Gönderi Akışı + Haber akışı ---------- -->
     <section class="lg:col-span-2 flex flex-col gap-6">
+
+      <!-- X Gönderi Akışı — en çok aksiyon/etkileşim gerektiren modül,
+           geniş sütuna taşındı ki tweet kartları dar kenar çubuğunda
+           sıkışmasın (kart genişliği de büyütüldü, bkz. renderXFeed). -->
+      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-4 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
+        <div class="flex items-center justify-between gap-3">
+          <h1 class="text-xl font-extrabold tracking-tight text-[#000]">X Gönderi Akışı</h1>
+          <span class="text-[10px] font-bold uppercase tracking-wide text-[#6a7282]">X</span>
+        </div>
+        <p class="text-sm font-medium text-[#6a7282]">Bir coin seç, o coin hakkındaki gerçek X gönderilerini getir.</p>
+        <div class="flex items-center gap-2 flex-wrap">
+          <select id="xFeedCoinSelect" class="rounded-full border border-[#e4e4e4] bg-[#fff] pl-3 pr-2 py-1.5 text-[12px] font-bold text-[#000] focus:outline-none focus:ring-2 focus:ring-[#dc0005]/30 cursor-pointer"></select>
+          <button id="xFeedRegionGlobal" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">🌍 Global</button>
+          <button id="xFeedRegionTr" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">🇹🇷 Türkiye</button>
+          <button id="xFeedFetchBtn" type="button" class="rounded-full bg-[#000] text-white px-3 py-1.5 text-[11px] font-bold hover:opacity-80 transition-opacity duration-200">Getir</button>
+        </div>
+        <div id="xFeedSummary" class="hidden rounded-xl bg-[#f9fafb] px-3 py-2 flex items-start gap-2"></div>
+        <div id="xFeedSlider" class="flex items-stretch gap-3 overflow-x-auto pb-1 min-h-[168px]"></div>
+        <p id="xFeedMeta" class="text-[10px] font-semibold text-[#6a7282]"></p>
+      </div>
+
       <div class="flex flex-col gap-1">
         <h1 class="text-2xl font-extrabold tracking-tight text-[#000]">Haber Akışı</h1>
         <p class="text-sm font-medium text-[#6a7282]">
@@ -162,26 +183,6 @@
         </div>
         <p id="priceStaleness" class="text-[11px] font-semibold text-[#6a7282]"></p>
         <div id="priceList" class="flex flex-col gap-1 max-h-96 overflow-y-auto pr-1"></div>
-      </div>
-
-      <!-- X Gönderi Akışı (talep üzerine, Grok/x_search) — Canlı Piyasa'nın
-           hemen altında: en çok aksiyon/etkileşim gerektiren modül,
-           sidebar'ın en dibinde kaybolmasın diye üste alındı. -->
-      <div class="bg-[#fff] rounded-2xl p-6 flex flex-col gap-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_4px_16px_-4px_rgba(16,24,40,0.06)]">
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="text-sm font-extrabold text-[#000]">X Gönderi Akışı</h2>
-          <span class="text-[10px] font-bold uppercase tracking-wide text-[#6a7282]">X</span>
-        </div>
-        <p class="text-[11px] font-semibold text-[#6a7282]">Bir coin seç, o coin hakkındaki gerçek X gönderilerini getir.</p>
-        <div class="flex items-center gap-2 flex-wrap">
-          <select id="xFeedCoinSelect" class="rounded-full border border-[#e4e4e4] bg-[#fff] pl-3 pr-2 py-1.5 text-[12px] font-bold text-[#000] focus:outline-none focus:ring-2 focus:ring-[#dc0005]/30 cursor-pointer"></select>
-          <button id="xFeedRegionGlobal" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">🌍 Global</button>
-          <button id="xFeedRegionTr" type="button" class="rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors duration-200">🇹🇷 Türkiye</button>
-          <button id="xFeedFetchBtn" type="button" class="rounded-full bg-[#000] text-white px-3 py-1.5 text-[11px] font-bold hover:opacity-80 transition-opacity duration-200">Getir</button>
-        </div>
-        <div id="xFeedSummary" class="hidden rounded-xl bg-[#f9fafb] px-3 py-2 flex items-start gap-2"></div>
-        <div id="xFeedSlider" class="flex items-stretch gap-2 overflow-x-auto pb-1 min-h-[64px]"></div>
-        <p id="xFeedMeta" class="text-[10px] font-semibold text-[#6a7282]"></p>
       </div>
 
       <!-- On-Chain Olaylar (eskiden İstihbarat'ın bir sekmesiydi — sekme
@@ -859,7 +860,7 @@
     // sade, monokrom bir "pulse" iskeleti — asıl kartlar gelene kadar
     // slider'ın aniden boşalıp dolmasını yumuşatır.
     xFeedSliderEl.innerHTML = Array.from({ length: 3 }, () => `
-      <div class="shrink-0 w-56 h-40 rounded-xl border border-[#e4e4e4] bg-[#fff] p-3 flex flex-col gap-2 animate-pulse">
+      <div class="shrink-0 w-72 h-40 rounded-xl border border-[#e4e4e4] bg-[#fff] p-3 flex flex-col gap-2 animate-pulse">
         <div class="flex items-center gap-2">
           <span class="w-6 h-6 rounded-full bg-[#e4e4e4] shrink-0"></span>
           <span class="w-20 h-2.5 rounded bg-[#e4e4e4]"></span>
@@ -884,7 +885,7 @@
       const turCls = p.tur === "yukseliste" ? "text-[#dc0005]" : "text-[#6a7282]";
       return `
       <a href="${safeUrl(p.url)}" target="_blank" rel="noopener"
-         class="shrink-0 w-56 h-40 rounded-xl border border-[#e4e4e4] bg-[#fff] p-3 flex flex-col gap-2
+         class="shrink-0 w-72 h-40 rounded-xl border border-[#e4e4e4] bg-[#fff] p-3 flex flex-col gap-2
                 hover:border-[#dc0005] hover:shadow-[0_4px_16px_-4px_rgba(16,24,40,0.12)] transition-all duration-200">
         <div class="flex items-center justify-between gap-2 min-w-0">
           <div class="flex items-center gap-2 min-w-0">
