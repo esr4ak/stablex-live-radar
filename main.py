@@ -1021,7 +1021,7 @@ kelime kombinasyonuyla (ör. cashtag yerine proje adı, ya da tersi) EN FAZLA 1 
 arama yapabilirsin — toplam en fazla 2 x_search çağrısı. SADECE aşağıdaki JSON formatında
 yanıtla:
 
-{"genel_yon": "olumlu", "genel_ozet": "...", "gonderiler": [{"yazar": "@kullanici", "metin": "...", "url": "https://x.com/...", "tur": "yeni", "ilgi_puani": 100, "onemli_hesap": false}]}
+{"genel_yon": "olumlu", "genel_ozet": "...", "gonderiler": [{"yazar": "@kullanici", "metin": "BTC güçlü bir toparlanma gösteriyor, yatırımcılar iyimser", "url": "https://x.com/...", "tur": "yeni", "ilgi_puani": 100, "onemli_hesap": false}]}
 
 Kurallar:
 - ALAKA ŞARTI (EN ÖNEMLİ KURAL): Gönderi GERÇEKTEN bu coin HAKKINDA olmalı — coin adı/
@@ -1031,6 +1031,15 @@ Kurallar:
   göre daha güvenilir bir sinyaldir çünkü kullanıcı bilinçli olarak o varlığı işaretlemiş
   olur — ama tek başına yeterli değil, gönderinin içeriği de gerçekten o coinle ilgili
   olmalı.
+- "metin" ZORUNLU OLARAK TÜRKÇE (İKİNCİ EN ÖNEMLİ KURAL — sıkça ihlal ediliyor,
+  DİKKAT ET): Gönderi İngilizce, İspanyolca, hangi dilde olursa olsun, "metin" alanı
+  HER ZAMAN Türkçe olmalı — orijinal dilde bırakman KABUL EDİLEMEZ bir hatadır. Bu bir
+  ÇEVİRİDİR (en fazla 200 karakterlik bir alıntının sadık çevirisi), yorumlama/özetleme
+  DEĞİL — gönderide olmayan hiçbir şey ekleme, olan hiçbir şeyi çıkarma. Örnek: gönderi
+  "$BTC looking strong, bulls in control" ise "metin" alanına "$BTC güçlü görünüyor,
+  boğalar kontrolde" yaz — "$BTC looking strong, bulls in control" YAZMA. Gönderi zaten
+  Türkçeyse olduğu gibi bırak. JSON'u vermeden önce HER "metin" alanını tekrar kontrol
+  et: içinde İngilizce (ya da başka bir dilde) tek bir cümle bile kalmışsa çeviriyi düzelt.
 - HESAP ÖNCELİĞİ: Alakalı adaylar arasında seçim yaparken, BÜYÜK/ETKİLİ hesapları
   (yüksek takipçili, tanınmış kripto influencer/kurum/analist hesapları) küçük/anonim
   hesaplara TERCİH ET — marketing ekibi "kim konuşuyor" bilgisine önem veriyor. Ama bu,
@@ -1068,11 +1077,6 @@ Kurallar:
     gönderi bulamazsan bu türü atla, uydurma.
 - "tur": SADECE "yeni", "etkilesimli" ya da "yukseliste" — her gönderi için hangi
   sebeple seçtiğini belirt.
-- "metin": gönderinin TAMAMININ değil, en fazla 200 karakterlik bir alıntının SADIK
-  Türkçe çevirisi (gönderi hangi dilde olursa olsun — İngilizce, Türkçe, fark etmez,
-  "metin" HER ZAMAN Türkçe olmalı). Bu bir çeviridir, bir yorumlama/özetleme DEĞİL —
-  gönderide OLMAYAN hiçbir şey ekleme, gönderide olan hiçbir şeyi çıkarma. Gönderi
-  zaten Türkçeyse olduğu gibi bırak.
 - "url": GERÇEKTEN bulduğun gönderinin tam X linki — ZORUNLU. Gerçek bir link
   bulamadığın bir gönderiyi listeye HİÇ EKLEME, uydurma link kesinlikle yasak.
 - Bu ticker hakkında gerçek/ilgili gönderi bulamazsan boş liste döndür — bu durumda
@@ -1146,6 +1150,36 @@ def _post_url_is_real(url: str) -> bool:
         return response.status_code != 404
     except Exception:
         return True
+
+
+X_FEED_TRANSLATE_PROMPT = """Aşağıda numaralanmış sosyal medya gönderisi metinleri var.
+Her birini Türkçeye çevir — zaten Türkçeyse OLDUĞU GİBİ bırak. Bu bir çeviri görevidir,
+yorumlama/özetleme DEĞİL: metinde olmayan hiçbir şey ekleme, olan hiçbir şeyi çıkarma.
+SADECE şu JSON formatında yanıtla: {"ceviriler": {"0": "...", "1": "...", ...}}"""
+
+
+def _x_feed_metinleri_turkcelestir(posts: list[dict]) -> list[dict]:
+    """GÜVENLİK AĞI: X_POST_FEED_SYSTEM_PROMPT Grok'a "metin" alanını her
+    zaman Türkçeye çevirmesini söylüyor ama bu gözlemlendiği üzere
+    güvenilir değil — aynı yanıtta bazı gönderiler İngilizce (hatta
+    Almanca) kalabiliyor. Burada TÜM metinleri TEK bir ucuz Gemini
+    çağrısında toplu olarak Türkçeye çevirtiyoruz (zaten Türkçe olanlar
+    değişmeden kalır) — N ayrı çağrı yerine 1 çağrı, maliyeti düşük
+    tutuyor. Çeviri başarısız olursa (Gemini hatası) sessizce Grok'un
+    verdiği orijinal metinle devam edilir, akış kesilmez."""
+    if not posts:
+        return posts
+    numaralı = "\n".join(f"{i}: {p['metin']}" for i, p in enumerate(posts))
+    try:
+        raw = _call_gemini_with_prompt(numaralı, X_FEED_TRANSLATE_PROMPT)
+        ceviriler = _extract_json(raw).get("ceviriler", {})
+        for i, p in enumerate(posts):
+            ceviri = ceviriler.get(str(i))
+            if ceviri:
+                p["metin"] = str(ceviri)[:200]
+    except Exception as exc:
+        print(f"  ⚠ X gönderi çevirisi (güvenlik ağı) başarısız, orijinal metin korunuyor: {exc}")
+    return posts
 
 
 def _parse_x_post_feed_response(raw: str) -> dict:
@@ -1225,6 +1259,8 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> dict:
         if dropped:
             print(f"  ✗ X gönderi akışı ({symbol}/{region}): {len(dropped)} gönderi 404 (uydurma link) — elendi")
         result["gonderiler"] = [p for p, real in zip(result["gonderiler"], real_flags) if real]
+
+    result["gonderiler"] = _x_feed_metinleri_turkcelestir(result["gonderiler"])
 
     # "Buzz" seviyesi: gerçek X hacmini iddia etmiyoruz — sadece bizim
     # arama denemelerimizde kaç alakalı gönderi bulduğumuzun kaba bir
