@@ -1158,22 +1158,47 @@ yorumlama/özetleme DEĞİL: metinde olmayan hiçbir şey ekleme, olan hiçbir �
 SADECE şu JSON formatında yanıtla: {"ceviriler": {"0": "...", "1": "...", ...}}"""
 
 
+_YABANCI_DIL_KELIME_RE = re.compile(
+    r"\b(the|is|are|was|were|this|that|with|from|have|has|and|for|will|been|"
+    r"your|just|more|über|für|und|ist|nicht|sich|auf|der|die|das)\b",
+    re.IGNORECASE,
+)
+_TR_HARF_RE = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
+
+
+def _muhtemelen_turkce(metin: str) -> bool:
+    """Ucuz, sezgisel bir kontrol — kesin dil tespiti değil. Maliyet
+    optimizasyonu için: metin YETERİNCE Türkçe GÖRÜNÜYORSA (yaygın
+    İngilizce/Almanca kelime yoksa VE Türkçeye özgü bir harf içeriyorsa)
+    Gemini'ye göndermeden atlıyoruz. Yanlış pozitif (gerçekte İngilizce
+    ama kaçan) riski var — bu bilinçli bir maliyet/güvenilirlik
+    dengesi, kullanıcı açıkça maliyet optimizasyonu istedi."""
+    if _YABANCI_DIL_KELIME_RE.search(metin):
+        return False
+    return bool(_TR_HARF_RE.search(metin)) or len(metin) < 20
+
+
 def _x_feed_metinleri_turkcelestir(posts: list[dict]) -> list[dict]:
     """GÜVENLİK AĞI: X_POST_FEED_SYSTEM_PROMPT Grok'a "metin" alanını her
     zaman Türkçeye çevirmesini söylüyor ama bu gözlemlendiği üzere
     güvenilir değil — aynı yanıtta bazı gönderiler İngilizce (hatta
-    Almanca) kalabiliyor. Burada TÜM metinleri TEK bir ucuz Gemini
-    çağrısında toplu olarak Türkçeye çevirtiyoruz (zaten Türkçe olanlar
-    değişmeden kalır) — N ayrı çağrı yerine 1 çağrı, maliyeti düşük
-    tutuyor. Çeviri başarısız olursa (Gemini hatası) sessizce Grok'un
-    verdiği orijinal metinle devam edilir, akış kesilmez."""
+    Almanca) kalabiliyor. MALİYET OPTİMİZASYONU: sadece _muhtemelen_turkce()
+    testinden GEÇEMEYEN metinler Gemini'ye gönderilir — hepsi zaten
+    Türkçe görünüyorsa Gemini'ye HİÇ gitmeyiz (0 maliyet). Gönderilenler
+    TEK bir toplu çağrıda çevrilir (N ayrı çağrı yerine 1). Çeviri
+    başarısız olursa (Gemini hatası) sessizce Grok'un verdiği orijinal
+    metinle devam edilir, akış kesilmez."""
     if not posts:
         return posts
-    numaralı = "\n".join(f"{i}: {p['metin']}" for i, p in enumerate(posts))
+    cevrilecekler = [(i, p) for i, p in enumerate(posts) if not _muhtemelen_turkce(p["metin"])]
+    if not cevrilecekler:
+        return posts
+
+    numaralı = "\n".join(f"{i}: {p['metin']}" for i, p in cevrilecekler)
     try:
         raw = _call_gemini_with_prompt(numaralı, X_FEED_TRANSLATE_PROMPT)
         ceviriler = _extract_json(raw).get("ceviriler", {})
-        for i, p in enumerate(posts):
+        for i, p in cevrilecekler:
             ceviri = ceviriler.get(str(i))
             if ceviri:
                 p["metin"] = str(ceviri)[:200]
@@ -1230,8 +1255,12 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> dict:
     0 sonuç dönebiliyordu (model o seferinde zayıf arama yapmış olabilir).
     İlk deneme boş dönerse, sunucu tarafında AÇIKÇA genişletilmiş bir
     pencereyle (ve modele "ilk aramanda bir şey bulamadın" bilgisiyle)
-    1 kez daha deneriz. İkinci deneme de boşsa bu artık gerçek bir "ilgili
-    gönderi yok" sonucudur — daha fazla denemek maliyeti katlamaya değmez."""
+    1 kez daha deneriz — AMA SADECE TOP_COIN_SYMBOLS için (maliyet
+    optimizasyonu): niş bir altcoin'de 0 sonuç genelde gerçekten
+    "konuşulmuyor" demektir, popüler coinlerde ise muhtemelen modelin o
+    seferki zayıf aramasıdır. İkinci deneme de boşsa bu artık gerçek bir
+    "ilgili gönderi yok" sonucudur — daha fazla denemek maliyeti
+    katlamaya değmez."""
     region_hint = (
         "SADECE Türkçe yazılmış, Türkiye'deki kullanıcılardan/hesaplardan gönderiler ara."
         if region == "tr" else
@@ -1239,7 +1268,11 @@ def fetch_x_post_feed(symbol: str, region: str = "global") -> dict:
     )
     raw = _call_xai_x_search(f"Ticker: {symbol}\n{region_hint}", X_POST_FEED_SYSTEM_PROMPT)
     result = _parse_x_post_feed_response(raw)
-    if not result["gonderiler"]:
+    # Maliyet optimizasyonu: retry sadece TOP_COIN_SYMBOLS için — bu coinler
+    # gerçekten popüler olduğu için 0 sonuç muhtemelen modelin zayıf aramasından
+    # kaynaklanır. Niş bir altcoin'de 0 sonuç genelde gerçekten "konuşulmuyor"
+    # demektir, ikinci bir ücretli çağrıyı hak etmez.
+    if not result["gonderiler"] and symbol in TOP_COIN_SYMBOLS:
         print(f"  ↻ X gönderi akışı ({symbol}/{region}) ilk denemede 0 sonuç — genişletilmiş pencereyle tekrar deneniyor")
         retry_content = (
             f"Ticker: {symbol}\n{region_hint}\n"
@@ -1787,9 +1820,10 @@ async def coins_feed() -> Response:
     return Response(content="\n".join(lines), media_type="application/xml")
 
 
-X_FEED_CACHE_TTL_SECONDS = 15 * 60  # 15 dk — sosyal sinyal bu sürede büyük değişmez;
-                                     # aynı coin'e art arda/birden fazla kişi bakarsa
-                                     # gereksiz tekrar ücretli arama yapılmasın diye.
+X_FEED_CACHE_TTL_SECONDS = 30 * 60  # 30 dk (önceden 15) — sosyal sinyal bu sürede
+                                     # büyük değişmez; aynı coin'e art arda/birden
+                                     # fazla kişi bakarsa gereksiz tekrar ücretli
+                                     # arama yapılmasın diye maliyet optimizasyonu.
 _x_feed_cache: dict = {}  # (sembol, bölge) -> {"veri": [...], "zaman": datetime}
 _x_feed_request_count = 0  # sunucu başladığından beri kaç GERÇEK (cache'siz) çağrı yapıldı
 
