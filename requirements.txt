@@ -7,3 +7,4 @@ lxml
 google-genai
 praw
 openai
+python-multipart

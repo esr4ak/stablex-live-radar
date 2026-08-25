@@ -79,7 +79,7 @@ from pathlib import Path
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 from xml.sax.saxutils import escape as xml_escape
 from google import genai
@@ -293,6 +293,26 @@ def init_db() -> None:
             # gösterir. son_gorulme HER taramada güncellenir, günlük
             # özet/mail bu sütuna göre filtrelenir (bkz. /api/daily-digest).
             conn.execute("ALTER TABLE x_discovery ADD COLUMN son_gorulme TEXT")
+
+        # Bülten Onay + Arşiv — bir bülten (sabah/akşam/günlük) ONAYLANDIĞI
+        # ANDAKİ hâliyle DONDURULUP kaydedilir (canlı veriden yeniden
+        # render edilmez) — denetim izi budur: "o gün gerçekten ne
+        # onaylandı" sorusu, altındaki veri sonradan değişse bile hep
+        # aynı cevabı vermeli.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bultenler (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                tur               TEXT NOT NULL,
+                pencere_baslangic TEXT,
+                pencere_bitis     TEXT,
+                olusturma_zamani  TEXT NOT NULL,
+                haberler_json     TEXT NOT NULL,
+                yukselenler_json  TEXT NOT NULL,
+                x_gundemi_json    TEXT NOT NULL,
+                onaylayan         TEXT NOT NULL,
+                onay_zamani       TEXT NOT NULL
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -454,6 +474,78 @@ def db_load_x_discovery() -> list[dict]:
             {"ticker": r[0], "ilk_gorulme": r[1], "yon": r[2], "ozet": r[3], "son_gorulme": r[4]}
             for r in rows
         ]
+    finally:
+        conn.close()
+
+
+def db_kaydet_bulten(
+    tur: str, baslangic: str | None, bitis: str | None,
+    haberler: list, yukselenler: list, x_gundemi: list, onaylayan: str,
+) -> int:
+    """Bir bülteni ONAYLANDIĞI ANDAKİ hâliyle dondurup kaydeder — canlı
+    veriye bir daha bağlı değildir, saf bir JSON anlık görüntüsüdür.
+    Böylece arşivdeki bir kayıt sonradan (ör. bir haber yeniden
+    kategorize edilse) asla değişmez."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur = conn.execute(
+            "INSERT INTO bultenler (tur, pencere_baslangic, pencere_bitis, "
+            "olusturma_zamani, haberler_json, yukselenler_json, x_gundemi_json, "
+            "onaylayan, onay_zamani) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                tur, baslangic, bitis, now_iso,
+                json.dumps(haberler, ensure_ascii=False),
+                json.dumps(yukselenler, ensure_ascii=False),
+                json.dumps(x_gundemi, ensure_ascii=False),
+                onaylayan.strip()[:100], now_iso,
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def db_load_bultenler(limit: int = 50) -> list[dict]:
+    """Arşiv listesi için özet satırlar (içerik olmadan) — en yeni önce."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT id, tur, pencere_baslangic, pencere_bitis, onaylayan, onay_zamani "
+            "FROM bultenler ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "id": r[0], "tur": r[1], "pencere_baslangic": r[2], "pencere_bitis": r[3],
+                "onaylayan": r[4], "onay_zamani": r[5],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def db_load_bulten(bulten_id: int) -> dict | None:
+    """Arşivdeki TEK bir bültenin tam (dondurulmuş) içeriğini döner."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT id, tur, pencere_baslangic, pencere_bitis, olusturma_zamani, "
+            "haberler_json, yukselenler_json, x_gundemi_json, onaylayan, onay_zamani "
+            "FROM bultenler WHERE id = ?",
+            (bulten_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "tur": row[1], "pencere_baslangic": row[2], "pencere_bitis": row[3],
+            "olusturma_zamani": row[4],
+            "haberler": json.loads(row[5]), "yukselenler": json.loads(row[6]),
+            "x_gundemi": json.loads(row[7]),
+            "onaylayan": row[8], "onay_zamani": row[9],
+        }
     finally:
         conn.close()
 
@@ -2060,10 +2152,40 @@ def _digest_x_row_html(item: dict) -> str:
       </div>"""
 
 
-def _bulten_sayfasi_html(baslik: str, alt_baslik: str, haberler: list[dict], yukselenler: list[dict], x_gundemi: list[dict], bos_haber_metni: str) -> str:
+def _bulten_onay_bloku_html(tur: str, pencere_baslangic: str | None, pencere_bitis: str | None, onaylandi: bool) -> str:
+    """Onay formu — bu SADECE bir kayıt/denetim izi mekanizmasıdır, gerçek
+    bir yetkilendirme/kimlik doğrulama sistemi DEĞİLDİR (kim isim yazarsa
+    o "onaylayan" olarak kaydedilir). Sayfanın kendisi hâlâ hiçbir onay
+    olmadan görüntülenebilir — onay sadece bultenler tablosuna dondurulmuş
+    bir anlık görüntü kaydeder, yayın/gönderim yapmaz."""
+    onay_mesaji = (
+        '<p style="color:#00c758;font-size:12px;font-weight:700;margin:0 0 8px 0;">✓ Onaylandı ve arşive kaydedildi.</p>'
+        if onaylandi else ""
+    )
+    return f"""
+    <section style="background:#f9fafb;border-radius:16px;padding:16px 20px;">
+      {onay_mesaji}
+      <form method="post" action="/api/bulten-onayla" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <input type="hidden" name="tur" value="{html_lib.escape(tur)}">
+        <input type="hidden" name="pencere_baslangic" value="{html_lib.escape(pencere_baslangic or '')}">
+        <input type="hidden" name="pencere_bitis" value="{html_lib.escape(pencere_bitis or '')}">
+        <input type="text" name="onaylayan" required placeholder="Adın (onaylayan)" style="flex:1;min-width:160px;padding:8px 12px;border-radius:10px;border:1px solid #e4e4e4;font-size:13px;">
+        <button type="submit" style="background:#000;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;">Onayla ve Arşivle</button>
+      </form>
+      <p style="font-size:11px;color:#6a7282;margin:8px 0 0 0;">Onaylamak bu bülteni <a href="/bulten-arsivi" style="color:#dc0005;">arşive</a> o anki hâliyle kaydeder — otomatik gönderim/yayın yapmaz.</p>
+    </section>"""
+
+
+def _bulten_sayfasi_html(
+    baslik: str, alt_baslik: str, haberler: list[dict], yukselenler: list[dict], x_gundemi: list[dict],
+    bos_haber_metni: str, tur: str | None = None, pencere_baslangic: str | None = None,
+    pencere_bitis: str | None = None, onaylandi: bool = False,
+) -> str:
     """Üç bülten sayfasının (günlük, sabah, akşam) ortak render'ı — sadece
     başlık/alt başlık ve haber listesi değişir, Yükselenler/X Gündemi
-    her zaman "şu anki" (zaman penceresiz) anlık görüntüyü gösterir."""
+    her zaman "şu anki" (zaman penceresiz) anlık görüntüyü gösterir.
+    "tur" verilirse altta bir Onay Bloku da eklenir (arşiv sayfasında
+    geçmiş bir kaydı salt-okunur göstermek için tur=None geçilir)."""
     haber_html = (
         "\n".join(_digest_haber_card_html(h) for h in haberler)
         if haberler else f'<p style="color:#6a7282;font-size:13px;">{html_lib.escape(bos_haber_metni)}</p>'
@@ -2076,6 +2198,7 @@ def _bulten_sayfasi_html(baslik: str, alt_baslik: str, haberler: list[dict], yuk
         "\n".join(_digest_x_row_html(i) for i in x_gundemi)
         if x_gundemi else '<p style="color:#6a7282;font-size:13px;">Şu an öne çıkan X gündemi yok.</p>'
     )
+    onay_bloku = _bulten_onay_bloku_html(tur, pencere_baslangic, pencere_bitis, onaylandi) if tur else ""
     return f"""<!doctype html>
 <html lang="tr">
 <head>
@@ -2089,6 +2212,7 @@ def _bulten_sayfasi_html(baslik: str, alt_baslik: str, haberler: list[dict], yuk
     <p style="color:#e4e4e4;font-size:12px;margin:6px 0 0 0;">{html_lib.escape(alt_baslik)}</p>
   </div>
   <div style="max-width:640px;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:28px;">
+    {onay_bloku}
     <section style="display:flex;flex-direction:column;gap:12px;">
       <h2 style="font-size:16px;font-weight:800;color:#000;margin:0;">Öne Çıkan Haberler</h2>
       {haber_html}
@@ -2122,6 +2246,7 @@ async def daily_digest_html() -> str:
         _digest_yukselenler(),
         _digest_x_gundemi(simdi),
         "Son 24 saatte önemli bir haber yok.",
+        tur="gunluk",
     )
 
 
@@ -2139,6 +2264,7 @@ async def sabah_bulteni_html() -> str:
         _digest_yukselenler(),
         _digest_x_gundemi(simdi),
         "Bu sabah henüz önemli bir haber yok.",
+        tur="sabah", pencere_baslangic=baslangic.isoformat(), pencere_bitis=bitis.isoformat(),
     )
 
 
@@ -2156,6 +2282,130 @@ async def aksam_bulteni_html() -> str:
         _digest_yukselenler(),
         _digest_x_gundemi(simdi),
         "Bu akşam henüz önemli bir haber yok.",
+        tur="aksam", pencere_baslangic=baslangic.isoformat(), pencere_bitis=bitis.isoformat(),
+    )
+
+
+@app.post("/api/bulten-onayla", response_class=HTMLResponse)
+async def bulten_onayla(
+    tur: str = Form(...),
+    pencere_baslangic: str = Form(""),
+    pencere_bitis: str = Form(""),
+    onaylayan: str = Form(...),
+) -> str:
+    """Bir bülteni ONAYLANDIĞI ANDAKİ hâliyle bultenler tablosuna
+    dondurup kaydeder. Bu SADECE bir kayıt/denetim izi — gerçek bir
+    yetkilendirme sistemi değil (kim isim yazarsa o "onaylayan" olur),
+    ve HİÇBİR yayın/gönderim (mail, push) tetiklemez. İçerik istemciden
+    GÜVENİLMEZ — güvenlik/tutarlılık için sunucu tarafında aynı window
+    ile YENİDEN üretilir (kullanıcı forma dokunup içerik değiştiremez)."""
+    if not onaylayan.strip():
+        return HTMLResponse("Onaylayan adı zorunlu.", status_code=400)
+
+    simdi = datetime.now(timezone.utc)
+    if tur == "sabah" or tur == "aksam":
+        try:
+            baslangic_dt = datetime.fromisoformat(pencere_baslangic)
+            bitis_dt = datetime.fromisoformat(pencere_bitis)
+        except ValueError:
+            baslangic_dt, bitis_dt = _bulten_araligi(tur, simdi)
+        haberler = _haberler_araliginda(baslangic_dt, bitis_dt, limit=15)
+    else:
+        tur = "gunluk"
+        baslangic_dt, bitis_dt = None, None
+        haberler = _digest_haberler(simdi)
+
+    yukselenler = _digest_yukselenler()
+    x_gundemi = _digest_x_gundemi(simdi)
+    bulten_id = await asyncio.to_thread(
+        db_kaydet_bulten, tur,
+        baslangic_dt.isoformat() if baslangic_dt else None,
+        bitis_dt.isoformat() if bitis_dt else None,
+        haberler, yukselenler, x_gundemi, onaylayan,
+    )
+    print(f"  ✓ Bülten onaylandı: #{bulten_id} ({tur}, onaylayan: {onaylayan.strip()[:50]})")
+
+    baslik = {"sabah": "Sabah Bülteni", "aksam": "Akşam Bülteni", "gunluk": "Günlük Bülten"}[tur]
+    alt_baslik = (
+        f"{_digest_fmt_zaman(baslangic_dt.isoformat())} – {_digest_fmt_zaman(bitis_dt.isoformat())} (TR)"
+        if baslangic_dt else f"Oluşturulma: {_digest_fmt_zaman(simdi.isoformat())} (TR)"
+    )
+    return _bulten_sayfasi_html(
+        baslik, alt_baslik, haberler, yukselenler, x_gundemi,
+        "İçerik yok.", tur=tur,
+        pencere_baslangic=baslangic_dt.isoformat() if baslangic_dt else None,
+        pencere_bitis=bitis_dt.isoformat() if bitis_dt else None,
+        onaylandi=True,
+    )
+
+
+def _bulten_arsiv_satir_html(kayit: dict) -> str:
+    tur_label = {"sabah": "Sabah Bülteni", "aksam": "Akşam Bülteni", "gunluk": "Günlük Bülten"}.get(kayit["tur"], kayit["tur"])
+    pencere = (
+        f"{_digest_fmt_zaman(kayit['pencere_baslangic'])} – {_digest_fmt_zaman(kayit['pencere_bitis'])}"
+        if kayit.get("pencere_baslangic") else "—"
+    )
+    return f"""
+      <a href="/bulten-arsivi/{kayit['id']}" style="text-decoration:none;color:inherit;">
+        <div style="background:#fff;border-radius:14px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 1px 2px rgba(16,24,40,0.04);">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <span style="font-size:13px;font-weight:800;color:#000;">{html_lib.escape(tur_label)}</span>
+            <span style="font-size:11px;color:#6a7282;">{html_lib.escape(pencere)}</span>
+          </div>
+          <div style="text-align:right;display:flex;flex-direction:column;gap:2px;">
+            <span style="font-size:12px;font-weight:700;color:#00c758;">✓ {html_lib.escape(kayit['onaylayan'])}</span>
+            <span style="font-size:11px;color:#6a7282;">{html_lib.escape(_digest_fmt_zaman(kayit['onay_zamani']))}</span>
+          </div>
+        </div>
+      </a>"""
+
+
+@app.get("/bulten-arsivi", response_class=HTMLResponse)
+async def bulten_arsivi_html() -> str:
+    """Onaylanmış tüm bültenlerin listesi — denetim izi/geçmiş kayıt.
+    Her satır kendi dondurulmuş anlık görüntüsüne (/bulten-arsivi/{id})
+    gider, canlı veriyle yeniden hesaplanmaz."""
+    kayitlar = await asyncio.to_thread(db_load_bultenler, 50)
+    satirlar = (
+        "\n".join(_bulten_arsiv_satir_html(k) for k in kayitlar)
+        if kayitlar else '<p style="color:#6a7282;font-size:13px;">Henüz onaylanmış bir bülten yok.</p>'
+    )
+    return f"""<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bülten Arşivi</title>
+</head>
+<body style="margin:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="background:#000;padding:24px 20px;">
+    <h1 style="color:#fff;font-size:20px;font-weight:800;margin:0;">STABLEX <span style="color:#dc0005;">●</span> Bülten Arşivi</h1>
+    <p style="color:#e4e4e4;font-size:12px;margin:6px 0 0 0;">Onaylanmış geçmiş bültenler — denetim izi</p>
+  </div>
+  <div style="max-width:640px;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:10px;">
+    {satirlar}
+  </div>
+</body>
+</html>"""
+
+
+@app.get("/bulten-arsivi/{bulten_id}", response_class=HTMLResponse)
+async def bulten_arsivi_detay_html(bulten_id: int) -> str:
+    """Arşivdeki TEK bir bültenin dondurulmuş hâli — salt okunur, onay
+    formu YOK (zaten onaylanmış), canlı veriyle yeniden render edilmez."""
+    kayit = await asyncio.to_thread(db_load_bulten, bulten_id)
+    if not kayit:
+        return HTMLResponse("Bülten bulunamadı.", status_code=404)
+    baslik = {"sabah": "Sabah Bülteni", "aksam": "Akşam Bülteni", "gunluk": "Günlük Bülten"}.get(kayit["tur"], kayit["tur"])
+    pencere = (
+        f"{_digest_fmt_zaman(kayit['pencere_baslangic'])} – {_digest_fmt_zaman(kayit['pencere_bitis'])} (TR)"
+        if kayit.get("pencere_baslangic") else f"Oluşturulma: {_digest_fmt_zaman(kayit['olusturma_zamani'])} (TR)"
+    )
+    alt_baslik = f"{pencere} · ✓ {kayit['onaylayan']} tarafından {_digest_fmt_zaman(kayit['onay_zamani'])} tarihinde onaylandı"
+    return _bulten_sayfasi_html(
+        f"{baslik} (Arşiv #{kayit['id']})", alt_baslik,
+        kayit["haberler"], kayit["yukselenler"], kayit["x_gundemi"],
+        "İçerik yok.",
     )
 
 
