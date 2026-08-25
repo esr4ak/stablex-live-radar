@@ -122,6 +122,11 @@ NEWS_INTERVAL_SECONDS = 15  # emisyon ritmi (kuyrukta bekleyen varsa en fazla bu
 
 STABLEX_COINS_SET = set(STABLEX_COINS)
 CHANNEL_KEYS = list(CHANNELS.keys())
+STABLEX_ETIKET_KEYS = {"kampanya_firsati", "risk_uyarisi", "regulasyon", "genel_farkindalik", "onemsiz"}
+STABLEX_ETIKET_VARSAYILAN = "genel_farkindalik"  # Gemini beklenmedik/geçersiz bir etiket dönerse
+                                                   # kullanılan güvenli varsayılan — "onemsiz" değil
+                                                   # (içeriği gizler), "risk_uyarisi" değil (gereksiz
+                                                   # alarm), en nötr seçenek bu.
 
 COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets"
 
@@ -177,6 +182,9 @@ def stable_id(*parts) -> str:
 # --------------------------------------------------------------------------
 # WebSocket bağlantı yönetimi
 # --------------------------------------------------------------------------
+BROADCAST_SEND_TIMEOUT_SECONDS = 5  # bu sürede gönderilemeyen istemci "ölü" sayılıp bağlantısı kesilir
+
+
 class ConnectionManager:
     def __init__(self):
         self.active: list[WebSocket] = []
@@ -189,18 +197,31 @@ class ConnectionManager:
         if websocket in self.active:
             self.active.remove(websocket)
 
+    async def _send_one(self, websocket: WebSocket, message: dict) -> bool:
+        """Tek bir istemciye gönderir, BROADCAST_SEND_TIMEOUT_SECONDS içinde
+        bitmezse (yavaş/tıkalı TCP tamponu) başarısız sayılır. Bu olmadan
+        (önceki hâl) tek bir yavaş istemci `await send_json()`'da asılı
+        kalıp price_stream_loop'un 3sn'lik döngüsünü, dolayısıyla TÜM
+        diğer istemcilerin yayınını geciktirebilirdi."""
+        try:
+            await asyncio.wait_for(websocket.send_json(message), timeout=BROADCAST_SEND_TIMEOUT_SECONDS)
+            return True
+        except Exception:
+            return False
+
     async def broadcast(self, message: dict) -> None:
-        dead = []
         # list(self.active): await sırasında yeni bir bağlantı/kopuş
         # self.active'i mutasyona uğratabilir; orijinal liste üzerinde
-        # dönmek eleman atlanmasına yol açabilirdi.
-        for websocket in list(self.active):
-            try:
-                await websocket.send_json(message)
-            except Exception:
-                dead.append(websocket)
-        for websocket in dead:
-            self.disconnect(websocket)
+        # dönmek eleman atlanmasına yol açabilirdi. Tüm gönderimler
+        # PARALEL yapılır (gather) — sıralı olsaydı yine de yavaş bir
+        # istemci kendi timeout'u dolana kadar sıradakileri geciktirirdi.
+        websockets = list(self.active)
+        if not websockets:
+            return
+        results = await asyncio.gather(*(self._send_one(ws, message) for ws in websockets))
+        for websocket, ok in zip(websockets, results):
+            if not ok:
+                self.disconnect(websocket)
 
 
 manager = ConnectionManager()
@@ -862,6 +883,9 @@ def _call_gemini(news_text: str) -> str:
 
 
 def _normalize_analysis(analysis: dict) -> dict:
+    analysis["baslik_tr"] = str(analysis.get("baslik_tr") or "").strip()
+    analysis["ozet_tr"] = str(analysis.get("ozet_tr") or "").strip()
+
     assets = analysis.get("ilgili_varliklar") or []
     analysis["ilgili_varliklar"] = [a for a in assets if a in STABLEX_COINS_SET]
 
@@ -869,6 +893,14 @@ def _normalize_analysis(analysis: dict) -> dict:
     content = analysis.get("icerik_onerisi") or {}
     analysis["icerik_onerisi"] = {c: content[c] for c in channels if content.get(c)}
     analysis["onerilen_kanallar"] = [c for c in channels if c in analysis["icerik_onerisi"]]
+
+    # Daha önce hiç doğrulanmıyordu — Gemini beklenmedik/hatalı bir etiket
+    # dönerse (typo, farklı bir kelime) sessizce sisteme sızıyordu (ör.
+    # frontend filtre listesinde olmayan bir değer). Şimdi allow-list'e
+    # karşı kontrol ediliyor, geçersizse nötr bir varsayılana düşülüyor.
+    if analysis.get("stablex_etiketi") not in STABLEX_ETIKET_KEYS:
+        print(f"  ⚠ Gemini geçersiz stablex_etiketi döndü: {analysis.get('stablex_etiketi')!r} — {STABLEX_ETIKET_VARSAYILAN} kullanılıyor")
+        analysis["stablex_etiketi"] = STABLEX_ETIKET_VARSAYILAN
     return analysis
 
 
@@ -2210,6 +2242,11 @@ def _bulten_sayfasi_html(
   <div style="background:#000;padding:24px 20px;">
     <h1 style="color:#fff;font-size:20px;font-weight:800;margin:0;">STABLEX <span style="color:#dc0005;">●</span> {html_lib.escape(baslik)}</h1>
     <p style="color:#e4e4e4;font-size:12px;margin:6px 0 0 0;">{html_lib.escape(alt_baslik)}</p>
+  </div>
+  <div style="background:#f9fafb;border-bottom:1px solid #e4e4e4;padding:8px 20px;text-align:center;">
+    <p style="font-size:11px;font-weight:600;color:#6a7282;margin:0;">
+      Bu içerikler yapay zeka tarafından otomatik üretilir ve <strong style="color:#000;">yatırım tavsiyesi değildir</strong> — yayınlanmadan önce insan onayından geçirilmelidir.
+    </p>
   </div>
   <div style="max-width:640px;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:28px;">
     {onay_bloku}
