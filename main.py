@@ -334,6 +334,21 @@ def init_db() -> None:
                 onay_zamani       TEXT NOT NULL
             )
         """)
+
+        # Gemini analiz hatalarının KALICI takibi — önceden sadece bellekte
+        # (_retry_counts dict) tutuluyordu, sunucu yeniden başlarsa sayaç
+        # sıfırlanıyordu. Artık DB'de: retry_count, son hata, son deneme
+        # zamanı ve nihai durum ("bekliyor"/"vazgecildi") kalıcı.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS haber_kuyruk_hatalari (
+                post_id         TEXT PRIMARY KEY,
+                baslik          TEXT,
+                retry_count     INTEGER NOT NULL DEFAULT 0,
+                last_error      TEXT,
+                last_attempt_at TEXT,
+                status          TEXT NOT NULL DEFAULT 'bekliyor'
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -342,7 +357,10 @@ def init_db() -> None:
 def db_check_batch(post_ids: list[str], freshness_cutoff_iso: str) -> tuple[set, set]:
     """Bir tarama turunda toplanan TÜM adayları TEK seferde kontrol eder
     (kaynak başına ayrı ayrı sorgu atmak yerine):
-      - seen_ids: post_id'si zaten radar.db'de olan haberler (tüm geçmiş).
+      - seen_ids: post_id'si zaten radar.db'de olan (market_intel'de YAYINLANMIŞ
+        ya da haber_kuyruk_hatalari'nda KALICI OLARAK VAZGEÇİLMİŞ) haberler —
+        vazgeçilenler dahil edilmezse aynı kalıcı-hatalı haber her RSS
+        taramasında sıfırdan yeniden denenir, EMIT_MAX_RETRIES'i anlamsızlaştırır.
       - seen_titles: tazelik penceresi içindeki (normalize edilmiş) başlıklar
         — çapraz-kaynak mükerrer tespiti için.
     """
@@ -356,6 +374,11 @@ def db_check_batch(post_ids: list[str], freshness_cutoff_iso: str) -> tuple[set,
                 post_ids,
             ).fetchall()
             seen_ids = {row[0] for row in rows}
+            vazgecilen_rows = conn.execute(
+                f"SELECT post_id FROM haber_kuyruk_hatalari WHERE status = 'vazgecildi' AND post_id IN ({placeholders})",
+                post_ids,
+            ).fetchall()
+            seen_ids |= {row[0] for row in vazgecilen_rows}
 
         title_rows = conn.execute(
             "SELECT title_norm FROM market_intel WHERE published_at >= ? AND title_norm IS NOT NULL AND title_norm != ''",
@@ -363,6 +386,48 @@ def db_check_batch(post_ids: list[str], freshness_cutoff_iso: str) -> tuple[set,
         ).fetchall()
         seen_titles = {row[0] for row in title_rows}
         return seen_ids, seen_titles
+    finally:
+        conn.close()
+
+
+def db_kuyruk_hata_kaydet(post_id: str, baslik: str, error: str) -> int:
+    """Bir Gemini analiz denemesi başarısız olduğunda çağrılır — retry_count'u
+    ARTTIRIR ve DÖNER (kalıcı, sunucu yeniden başlasa bile korunur)."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        row = conn.execute("SELECT retry_count FROM haber_kuyruk_hatalari WHERE post_id = ?", (post_id,)).fetchone()
+        yeni_sayac = (row[0] if row else 0) + 1
+        conn.execute(
+            "INSERT INTO haber_kuyruk_hatalari (post_id, baslik, retry_count, last_error, last_attempt_at, status) "
+            "VALUES (?, ?, ?, ?, ?, 'bekliyor') "
+            "ON CONFLICT(post_id) DO UPDATE SET retry_count = ?, last_error = ?, last_attempt_at = ?, status = 'bekliyor'",
+            (post_id, baslik, yeni_sayac, error[:500], now_iso, yeni_sayac, error[:500], now_iso),
+        )
+        conn.commit()
+        return yeni_sayac
+    finally:
+        conn.close()
+
+
+def db_kuyruk_hata_vazgec(post_id: str) -> None:
+    """EMIT_MAX_RETRIES aşıldığında — satırı SİLMEZ (o zaman fetch_loop
+    aynı haberi tekrar keşfedip sıfırdan başlardı), status='vazgecildi'
+    yapar ki db_check_batch bunu kalıcı olarak dışlasın."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("UPDATE haber_kuyruk_hatalari SET status = 'vazgecildi' WHERE post_id = ?", (post_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def db_kuyruk_hata_temizle(post_id: str) -> None:
+    """Analiz nihayet BAŞARILI olduğunda hata kaydını temizler."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("DELETE FROM haber_kuyruk_hatalari WHERE post_id = ?", (post_id,))
+        conn.commit()
     finally:
         conn.close()
 
@@ -612,26 +677,6 @@ def fetch_rss_source(source: dict) -> list[dict]:
     return items
 
 
-def fetch_google_news_source(source: dict) -> list[dict]:
-    """Kaynağın kendi RSS'i olmadığında (Reuters 401, Foreks 403) Google
-    News'in ücretsiz arama RSS'i üzerinden vekil bir akış — gürültü riski
-    doğrudan RSS'e göre daha yüksektir."""
-    query = source["query"].replace(" ", "+")
-    url = f"https://news.google.com/rss/search?q={query}&hl=tr&gl=TR&ceid=TR:tr"
-    parsed = feedparser.parse(url)
-    items = []
-    for entry in parsed.entries[:ENTRIES_PER_SOURCE]:
-        items.append({
-            "post_id": stable_id("google_news", source["name"], entry.get("link")),
-            "title": entry.get("title", "").strip(),
-            "source": source["name"],
-            "kategori": source["kategori"],
-            "url": entry.get("link"),
-            "published_at": _entry_published_at(entry),
-        })
-    return items
-
-
 _SPK_DATE_RE = re.compile(r"^(\d{2})\s+(\w{3})\s+(\d{4})")
 _TR_MONTHS = {
     "Oca": 1, "Şub": 2, "Mar": 3, "Nis": 4, "May": 5, "Haz": 6,
@@ -653,9 +698,19 @@ def fetch_spk_source(source: dict) -> list[dict]:
         return []
 
     soup = BeautifulSoup(response.text, "lxml")
+    anchors = soup.select(f'a[href*="basin-duyurulari/{year}/"]')
+    # Sessiz veri kaybı savunması: sayfa 200 OK dönse bile SEÇİCİ HİÇ
+    # eşleşme bulamazsa (0 <a>), bu "bugün duyuru yok" DEĞİL — SPK sayfa
+    # yapısını değiştirmiş demektir (seçici kırılmış). "Hiç duyuru yok"
+    # durumunda bile normalde en azından geçmiş yılların/nav linkleri
+    # eşleşir; sıfır anchor tamamen farklı bir sinyal, bu yüzden ayrı
+    # uyarılıyor (aksi halde haftalarca sessizce hiç SPK haberi gelmezdi).
+    if not anchors:
+        print(f"  ⚠ SPK sayfası okundu ama HİÇ duyuru linki bulunamadı — sayfa yapısı değişmiş olabilir (seçici kontrol edilmeli): {url}")
+
     seen_urls = set()
     items = []
-    for a in soup.select(f'a[href*="basin-duyurulari/{year}/"]'):
+    for a in anchors:
         text = a.get_text(strip=True)
         href = a.get("href")
         match = _SPK_DATE_RE.match(text)
@@ -688,7 +743,6 @@ def fetch_spk_source(source: dict) -> list[dict]:
 
 FETCHERS = {
     "rss": fetch_rss_source,
-    "google_news": fetch_google_news_source,
     "spk_html": fetch_spk_source,
 }
 
@@ -702,7 +756,6 @@ def _is_fresh(published_at) -> bool:
 
 _queued_ids: set[str] = set()  # şu an kuyrukta bekleyen/analiz sürecindeki haberler (bu çalıştırma için)
 _queued_titles: set[str] = set()  # aynı turda/kuyrukta normalize başlık çakışmasını yakalamak için
-_retry_counts: dict = {}  # post_id -> kaç kez Gemini analizi başarısız oldu
 _pending_queue: "asyncio.Queue[dict]" = asyncio.Queue()
 EMIT_MAX_RETRIES = 5  # bu kadar denemeden sonra bir haberden vazgeçilir (kalıcı hata varsayımı)
 
@@ -981,11 +1034,10 @@ async def emit_loop() -> None:
         try:
             analysis = await asyncio.to_thread(analyze_with_gemini, item)
         except Exception as exc:
-            retries = _retry_counts.get(item["post_id"], 0) + 1
-            _retry_counts[item["post_id"]] = retries
+            retries = await asyncio.to_thread(db_kuyruk_hata_kaydet, item["post_id"], item["title"], str(exc))
             if retries >= EMIT_MAX_RETRIES:
                 print(f"  ✗ Vazgeçildi ({EMIT_MAX_RETRIES} deneme, {item['title'][:60]}): {exc}")
-                _retry_counts.pop(item["post_id"], None)
+                await asyncio.to_thread(db_kuyruk_hata_vazgec, item["post_id"])
             else:
                 print(f"  ⚠ Gemini analizi başarısız, {retries}/{EMIT_MAX_RETRIES} "
                       f"({item['title'][:60]}): {exc}")
@@ -999,7 +1051,7 @@ async def emit_loop() -> None:
             await asyncio.sleep(5)
             continue
 
-        _retry_counts.pop(item["post_id"], None)
+        await asyncio.to_thread(db_kuyruk_hata_temizle, item["post_id"])
         message = {
             "tip": "haber",
             "id": item["post_id"],

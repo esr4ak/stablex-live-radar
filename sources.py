@@ -6,12 +6,13 @@
 #
 # type:
 #   "rss"          — kaynağın kendi gerçek RSS'i (temiz sinyal, doğrulandı).
-#   "google_news"  — kaynağın gerçek RSS'i yok ya da bot korumasından direkt
-#                     erişim engelleniyor (Reuters 401, Foreks 403); Google
-#                     News'in ücretsiz arama RSS'i üzerinden site-scoped
-#                     vekil bir akış. Gürültü riski RSS'e göre daha yüksek.
 #   "spk_html"     — SPK'nın RSS'i yok, resmi duyuru sayfası BeautifulSoup
 #                     ile taranıyor (özel parser main.py'de fetch_spk()).
+#
+# "google_news" tipi (Reuters/Foreks için Google News vekil RSS'i) kaldırıldı
+# (2026-08-25) — bu iki kaynak zaten marka-odaklı sınırlama kararıyla
+# (2026-08-19) whitelist'ten çıkarılmıştı, fetcher kodu kullanılmayan/ölü
+# koddu. Aynı ihtiyaç tekrar doğarsa main.py git geçmişinde fetch_google_news_source().
 # KAPSAM KARARI (2026-08-19): Ürünün asıl hedefi kullanıcılara doğrudan
 # push edilecek bir haber akışı — bu yüzden Küresel/Yerel kaynaklar
 # BİLEREK sadece büyük/güvenilir marka isimleriyle sınırlandı (CoinGecko,
