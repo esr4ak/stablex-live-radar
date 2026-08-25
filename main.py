@@ -825,8 +825,10 @@ kripto/finans haberini analiz et ve SADECE şu JSON formatında yanıt ver:
   "ozet_tr": "Kaynak Özeti KISAYSA (1-2 cümlelik bir RSS özeti) onun sadık/birebir Türkçe çevirisi; Kaynak Özeti UZUNSA (tam makale metni) o metne SIKI SIKIYA bağlı, 2-3 cümlelik gerçek bir Türkçe özet (metinde OLMAYAN hiçbir ayrıntı ekleme); Kaynak Özeti hiç YOKSA SADECE başlığın Türkçe çevirisi (tek cümle, yorum cümlesi EKLEME)",
   "stablex_etiketi": "kampanya_firsati" | "risk_uyarisi" | "regulasyon"
                       | "genel_farkindalik" | "onemsiz",
+  "etki_puani": 0-100 arası bir tam sayı,
+  "aciliyet": "yuksek" | "orta" | "dusuk",
   "ilgili_varliklar": ["BTC", "ETH", ...],
-  "onerilen_kanallar": ["push", "email", "blog", "sosyal"],
+  "onerilen_kanallar": ["push", "email", "blog", "x_gonderisi", "instagram_carousel", "reels", "topluluk"],
   "icerik_onerisi": {{
     "push": "O kanal önerildiyse: tek cümlelik, bilgilendirici (asla 'al/sat/kazan'
              çağrısı yapmayan) örnek push bildirimi metni",
@@ -835,8 +837,16 @@ kripto/finans haberini analiz et ve SADECE şu JSON formatında yanıt ver:
              profesyonel bir brief. 'Başlık:', 'Açı:', 'Değinilecek noktalar:',
              'Uyumluluk notu:', 'CTA:' etiketleriyle başlayan 5 satır, aralarında
              \\n olacak şekilde (bkz. BLOG BRIEF TALİMATLARI aşağıda)",
-    "sosyal": "O kanal önerildiyse: tek paragraflık, bilgilendirici örnek sosyal
-               medya paylaşım taslağı (emoji kullanmadan, abartısız)"
+    "x_gonderisi": "O kanal önerildiyse: X'te (Twitter) paylaşılacak, en fazla 280
+                    karakterlik, tek paylaşımlık bir metin taslağı (emojisiz, abartısız)",
+    "instagram_carousel": "O kanal önerildiyse: 3-4 slaytlık bir carousel için her
+                           slaytın başlığı+kısa metni, 'Slayt 1:', 'Slayt 2:' ...
+                           etiketleriyle başlayan satırlar, aralarında \\n",
+    "reels": "O kanal önerildiyse: 15-30 saniyelik bir Reels/kısa video için sahne
+              sahne senaryo — 'Sahne 1 (0-5sn):', 'Sahne 2 (5-15sn):' ... etiketleriyle
+              başlayan satırlar, her biri görsel yönlendirme + kısa metin içersin",
+    "topluluk": "O kanal önerildiyse: Telegram/Discord gibi bir topluluk kanalına
+                 atılacak, samimi ama profesyonel tek paragraflık bir duyuru taslağı"
   }}
 }}
 
@@ -854,6 +864,20 @@ haber için özgün ve o habere özel içerik üret):
 5. "CTA:" — yazının sonunda kullanıcıyı Stablex'te hangi bilgilendirici eyleme
    yönlendireceğini yaz (ör. "X hakkında daha fazla bilgi edinin"), asla
    doğrudan al/sat çağrısı olmasın.
+
+MARKA TONU (Stablex'in sesi — TÜM Türkçe metinler ve içerik önerileri için):
+- Hedef kitle: kripto konusunda az-orta bilgili, temkinli, güven arayan bireysel
+  kullanıcılar (uzman trader değil). Onlara YUKARIDAN bakmadan, jargonu
+  gerektiğinde kısaca açıklayarak yaz.
+- Ton: sakin, şeffaf, kurumsal ama sıcak — bir bankanın değil, güvenilir bir
+  finans gazetecisinin sesi gibi düşün. Ünlem işareti, ALL CAPS, aşırı emoji
+  kullanma (Reels/carousel formatları hariç, oralarda ölçülü emoji kabul edilir).
+- YASAKLI KELİME/İFADELER (hiçbir içerik önerisinde, hiçbir kanalda GEÇMEMELİ):
+  "kaçırma", "son şans", "hemen al", "hemen satın al", "garantili kazanç",
+  "kesin getiri", "%X kazandırır", "fırsatı kaçırma", "acele et", belirli bir
+  fiyat hedefi/tahmini (ör. "80.000 dolara çıkacak"), "yatırım tavsiyesi" ima
+  eden hiçbir ifade. Bu kelimelerden biri aklına gelirse yazma, farklı bir
+  kelime seç.
 
 Dil ve kalite kuralları:
 - Tüm Türkçe metinler düzgün, akıcı, YAZIM VE DİLBİLGİSİ HATASI OLMAYAN
@@ -893,10 +917,18 @@ Etiketleme kuralları:
   potansiyeli gibi kullanıcıyı harekete geçirebilecek haberler.
 - "risk_uyarisi": ani düşüş, güvenlik ihlali, regülasyon baskısı.
 - "onemsiz" etiketini gördüğünde "onerilen_kanallar" listesini boş bırak.
+- "etki_puani" (0-100): bu haberin Stablex kullanıcıları için ne kadar ÖNEMLİ
+  olduğuna dair kendi değerlendirmen — SPK/SEC gibi düzenleyici bir kurumdan
+  gelen doğrudan bir karar, büyük bir borsa/kurumsal haber ya da net bir
+  fiyat hareketi YÜKSEK (70-100); genel piyasa yorumu/analiz ORTA (30-70);
+  tekrar eden/küçük/spekülatif bir haber DÜŞÜK (0-30) olmalı.
+- "aciliyet": "yuksek" SADECE kullanıcının BUGÜN bilmesi gerçekten önemliyse
+  (ör. güvenlik ihlali, ani düzenleyici karar); "dusuk" arka plan bilgisi
+  niteliğindeki haberler için; çoğu haber "orta" olmalı.
 - "onerilen_kanallar" için sadece haberin gerçekten uygun olduğu kanalları seç
-  (genelde 0-2 kanal yeterli); seçilmeyen kanalları "icerik_onerisi" içine hiç
-  ekleme. Bu taslaklar doğrudan yayınlanacak metinler değil, ilham amaçlı
-  örneklerdir."""
+  (genelde 0-2 kanal yeterli, "etki_puani" düşükse muhtemelen 0); seçilmeyen
+  kanalları "icerik_onerisi" içine hiç ekleme. Bu taslaklar doğrudan
+  yayınlanacak metinler değil, ilham amaçlı örneklerdir."""
 
 
 def _extract_json(text: str) -> dict:
@@ -954,6 +986,16 @@ def _normalize_analysis(analysis: dict) -> dict:
     if analysis.get("stablex_etiketi") not in STABLEX_ETIKET_KEYS:
         print(f"  ⚠ Gemini geçersiz stablex_etiketi döndü: {analysis.get('stablex_etiketi')!r} — {STABLEX_ETIKET_VARSAYILAN} kullanılıyor")
         analysis["stablex_etiketi"] = STABLEX_ETIKET_VARSAYILAN
+
+    try:
+        etki_puani = int(analysis.get("etki_puani"))
+    except (TypeError, ValueError):
+        etki_puani = 0
+    analysis["etki_puani"] = max(0, min(100, etki_puani))
+
+    if analysis.get("aciliyet") not in {"yuksek", "orta", "dusuk"}:
+        analysis["aciliyet"] = "orta"
+
     return analysis
 
 

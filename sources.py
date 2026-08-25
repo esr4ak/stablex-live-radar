@@ -106,7 +106,10 @@ CHANNELS = {
     "push": "Push Bildirimi",
     "email": "E-posta Bülteni",
     "blog": "Blog İçeriği",
-    "sosyal": "Sosyal Medya",
+    "x_gonderisi": "X Gönderisi",
+    "instagram_carousel": "Instagram Carousel",
+    "reels": "Reels Senaryosu",
+    "topluluk": "Topluluk Duyurusu",
 }
 
 # Rakip Kapsam Farkı — "rakipte var, Stablex'te yok" coin tespiti.
