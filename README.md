@@ -10,13 +10,21 @@ bir istemci bağlanır bağlanmaz son 50 haber `{"tip": "gecmis_haberler"}`
 WebSocket mesajıyla anında gönderilir (sayfa yenilendiğinde akış boş
 başlamaz). `radar.db`'yi silersen geçmiş sıfırlanır, sistem bozulmaz.
 
-- **Haberler**: GERÇEK tarama — `sources.py`'deki BEYAZ LİSTE'den (11 kaynak,
+- **Haberler**: GERÇEK tarama — `sources.py`'deki BEYAZ LİSTE'den (5 kaynak,
   aşağıda) 60 saniyede bir çekilir, sadece son 10 gün içindeki ve daha önce
   yayınlanmamış haberler işlenir, Gemini API'ye (`../poller/` ile aynı
-  sağlayıcı) gönderilip Türkçe başlık/özet/etiket/pazarlama aksiyonu
-  JSON'ına dönüştürülür, en fazla 15 saniyede bir istemcilere yayınlanır.
-  Akışın üstünde coin/haber bazlı arama kutusu var (client-side, mevcut
-  kartları filtreler).
+  sağlayıcı) gönderilip Türkçe başlık/özet/etiket + `etki_puani` (0-100),
+  `aciliyet` (yuksek/orta/dusuk) ve kanal bazlı içerik önerisi
+  (`onerilen_kanallar`/`icerik_onerisi`) içeren bir JSON'a dönüştürülür, en
+  fazla 15 saniyede bir istemcilere yayınlanır. Akışın üstünde coin/haber
+  bazlı arama kutusu var (client-side, mevcut kartları filtreler).
+
+  > Not: Reuters ve Foreks Haber daha önce Google News vekil RSS'i ile
+  > taranıyordu (gerçek RSS'leri 401/403 döndüğü için); bu iki kaynak ve
+  > Cointelegraph/Decrypt/CryptoSlate/Bloomberg HT/Uzmancoin, gürültü/bakım
+  > yükünü azaltmak için `WHITELIST_SOURCES`'tan çıkarıldı — Google News
+  > vekil mekanizması (`fetch_google_news_source`) da koddan tamamen
+  > kaldırıldı. Aşağıdaki tablo güncel listeyi yansıtıyor.
 
   > Not: Bunu bir ara yerel LLM'e (Ollama) bağlamıştık ama bu kişisel/tek
   > kullanıcılı bir makine olduğu için Ollama'nın avantajları (gizlilik,
@@ -40,14 +48,8 @@ başlamaz). `radar.db`'yi silersen geçmiş sıfırlanır, sistem bozulmaz.
 |---|---|---|
 | The Block | RSS | doğrulandı |
 | CoinDesk | RSS | doğrulandı |
-| Cointelegraph | RSS | doğrulandı |
-| Decrypt | RSS | doğrulandı |
-| CryptoSlate | RSS | doğrulandı |
-| Reuters | Google News vekil | gerçek RSS'i yok/401 — site-scoped arama RSS'i kullanılıyor, gürültü riski RSS'e göre daha yüksek |
-| Bloomberg HT | RSS | doğrulandı |
-| Uzmancoin | RSS | doğrulandı |
-| Foreks Haber | Google News vekil | doğrudan erişim 403 — site-scoped arama RSS'i kullanılıyor |
-| SPK | BeautifulSoup (HTML) | RSS yok, resmi basın duyuruları sayfası taranıyor |
+| CoinGecko | RSS | doğrulandı |
+| SPK | BeautifulSoup (HTML) | RSS yok, resmi basın duyuruları sayfası taranıyor; sayfa yapısı değişip hiç sonuç dönmezse konsola uyarı basılır |
 | SEC | RSS | doğrulandı |
 
 Yeni bir kaynak eklemek/çıkarmak istersen sadece `sources.py`daki
@@ -69,8 +71,23 @@ uvicorn main:app --reload
 
 Gemini geçici olarak hata verirse (kota/yoğunluk) sistem çökmez — o haber
 radar.db'ye yazılmadığı için "görülmemiş" sayılmaya devam eder ve doğrudan
-kuyrukta kalıp tekrar denenir (en fazla `EMIT_MAX_RETRIES` kez); kalıcı
-hata varsayılırsa vazgeçilip loglanır.
+kuyrukta kalıp tekrar denenir (en fazla `EMIT_MAX_RETRIES` kez). Deneme
+sayacı `haber_kuyruk_hatalari` tablosunda kalıcı olarak tutulur (sunucu
+restart'ında sıfırlanmaz); kalıcı hata varsayılırsa vazgeçilip loglanır ve
+bir daha kuyruğa alınmaz.
+
+## İnsan onayı / uyum notu
+
+Bu prototip **hiçbir içeriği otomatik yayınlamaz**. Ana sayfada görünür bir
+"yatırım tavsiyesi değildir — yayınlanmadan önce insan onayından
+geçirilmelidir" uyarısı var, ve `/api/bulten-onayla` üzerinden bir bülten
+anlık görüntüsü isim yazan bir kişi tarafından onaylanıp `/bulten-arsivi`ne
+kaydedilebilir (bu adım sadece arşivler — otomatik gönderim/yayın yapmaz).
+Bu isim-bazlı onay bir **kimlik doğrulama/yetkilendirme sistemi değildir**
+(kim isim yazarsa o "onaylayan" olur) — FCA'nın s.21 onaylayıcı seviyesinde
+bir kontrol değildir, sadece iç bir "kim baktı" kaydı sağlar. Tüketiciye
+yönelik bir promosyon kanalına bağlanmadan önce gerçek bir yetkilendirme +
+denetim izi katmanı eklenmelidir.
 
 ## Not: her zaman açık sunucu gerektirir
 
