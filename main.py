@@ -349,6 +349,21 @@ def init_db() -> None:
                 status          TEXT NOT NULL DEFAULT 'bekliyor'
             )
         """)
+
+        # Kaynak sağlığı — önceden bir kaynak taraması kırılınca (SPK sayfa
+        # yapısı değişimi, RSS 403 vb.) sadece konsola print ediliyordu; bunu
+        # kimse okumazsa haftalarca fark edilmeden kaynak sessizce ölü kalırdı.
+        # Artık kalıcı: ardışık hata sayısı burada tutulur ve bir eşiği
+        # aşınca "kaynak_sorunu" WS mesajıyla panelde GÖRÜNÜR hale gelir.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kaynak_sagligi (
+                kaynak            TEXT PRIMARY KEY,
+                son_basari_zamani TEXT,
+                son_hata          TEXT,
+                son_hata_zamani   TEXT,
+                ardisik_hata      INTEGER NOT NULL DEFAULT 0
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -428,6 +443,62 @@ def db_kuyruk_hata_temizle(post_id: str) -> None:
     try:
         conn.execute("DELETE FROM haber_kuyruk_hatalari WHERE post_id = ?", (post_id,))
         conn.commit()
+    finally:
+        conn.close()
+
+
+KAYNAK_HATA_ESIGI = 2  # bu kadar ardışık başarısız taramadan sonra "kaynak_sorunu" yayınlanır
+
+
+def db_kaynak_saglik_guncelle(kaynak: str, basarili: bool, hata_mesaji: str | None = None) -> tuple[int, int]:
+    """Bir kaynağın bu taramadaki durumunu kaydeder, (önceki, yeni) ardışık
+    hata sayısını döner — çağıran taraf eşiği YENİ geçen/eşiğin altına düşen
+    kaynağı bu ikiliden anlayıp sadece GEÇİŞ anında yayın yapabilsin (her
+    başarılı taramada gereksiz broadcast atmamak için)."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        row = conn.execute("SELECT ardisik_hata FROM kaynak_sagligi WHERE kaynak = ?", (kaynak,)).fetchone()
+        onceki = row[0] if row else 0
+
+        if basarili:
+            conn.execute(
+                "INSERT INTO kaynak_sagligi (kaynak, son_basari_zamani, son_hata, son_hata_zamani, ardisik_hata) "
+                "VALUES (?, ?, NULL, NULL, 0) "
+                "ON CONFLICT(kaynak) DO UPDATE SET son_basari_zamani = ?, ardisik_hata = 0",
+                (kaynak, now_iso, now_iso),
+            )
+            conn.commit()
+            return onceki, 0
+
+        yeni_sayac = onceki + 1
+        conn.execute(
+            "INSERT INTO kaynak_sagligi (kaynak, son_hata, son_hata_zamani, ardisik_hata) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(kaynak) DO UPDATE SET son_hata = ?, son_hata_zamani = ?, ardisik_hata = ?",
+            (kaynak, str(hata_mesaji)[:500], now_iso, yeni_sayac,
+             str(hata_mesaji)[:500], now_iso, yeni_sayac),
+        )
+        conn.commit()
+        return onceki, yeni_sayac
+    finally:
+        conn.close()
+
+
+def db_kaynak_saglik_sorunlulari() -> list[dict]:
+    """Eşiği aşmış (hâlâ sorunlu) kaynakları döner — yeni bağlanan
+    istemcilere anlık durumu göndermek için kullanılır."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT kaynak, son_hata, son_hata_zamani, ardisik_hata FROM kaynak_sagligi "
+            "WHERE ardisik_hata >= ? ORDER BY kaynak",
+            (KAYNAK_HATA_ESIGI,),
+        ).fetchall()
+        return [
+            {"kaynak": r[0], "son_hata": r[1], "son_hata_zamani": r[2], "ardisik_hata": r[3]}
+            for r in rows
+        ]
     finally:
         conn.close()
 
@@ -690,12 +761,13 @@ def fetch_spk_source(source: dict) -> list[dict]:
     bu önekten hem tarihi hem başlığı çıkarıyoruz."""
     year = datetime.now(timezone.utc).year
     url = f"https://spk.gov.tr/duyurular/basin-duyurulari/{year}"
-    try:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-        response.raise_for_status()
-    except Exception as exc:
-        print(f"  ⚠ SPK sayfası okunamadı: {exc}")
-        return []
+    # Not: önceden burada hata/0-anchor durumunda print edip [] dönülüyordu
+    # — bu, fetch_loop'un genel "except Exception" kaynak-sağlığı takibinin
+    # SPK için hiç tetiklenmemesi anlamına geliyordu (başarılı-ama-boş bir
+    # sonuç gibi görünüyordu). Artık ikisi de RAISE ediyor ki fetch_loop
+    # bunu diğer kaynaklarla aynı şekilde kaydedip panelde görünür kılsın.
+    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "lxml")
     anchors = soup.select(f'a[href*="basin-duyurulari/{year}/"]')
@@ -706,7 +778,7 @@ def fetch_spk_source(source: dict) -> list[dict]:
     # eşleşir; sıfır anchor tamamen farklı bir sinyal, bu yüzden ayrı
     # uyarılıyor (aksi halde haftalarca sessizce hiç SPK haberi gelmezdi).
     if not anchors:
-        print(f"  ⚠ SPK sayfası okundu ama HİÇ duyuru linki bulunamadı — sayfa yapısı değişmiş olabilir (seçici kontrol edilmeli): {url}")
+        raise RuntimeError(f"sayfa yapısı değişmiş olabilir — 0 duyuru linki bulundu ({url})")
 
     seen_urls = set()
     items = []
@@ -782,10 +854,19 @@ async def fetch_loop() -> None:
 
         all_items = []
         for source, result in zip(WHITELIST_SOURCES, results):
+            kaynak = source["name"]
             if isinstance(result, Exception):
-                print(f"  ⚠ {source['name']} taranamadı: {result}")
+                print(f"  ⚠ {kaynak} taranamadı: {result}")
+                onceki, yeni = await asyncio.to_thread(db_kaynak_saglik_guncelle, kaynak, False, str(result))
+                if onceki < KAYNAK_HATA_ESIGI <= yeni:
+                    # eşiği YENİ geçti — panelde göster
+                    await manager.broadcast({"tip": "kaynak_sorunu", "veri": await asyncio.to_thread(db_kaynak_saglik_sorunlulari)})
                 continue
             all_items.extend(result)
+            onceki, yeni = await asyncio.to_thread(db_kaynak_saglik_guncelle, kaynak, True)
+            if onceki >= KAYNAK_HATA_ESIGI:
+                # eşiği aşmış haldeyken düzeldi — panelden kaldır
+                await manager.broadcast({"tip": "kaynak_sorunu", "veri": await asyncio.to_thread(db_kaynak_saglik_sorunlulari)})
 
         fresh_items = [i for i in all_items if _is_fresh(i["published_at"])]
         candidates = [i for i in fresh_items if i["post_id"] not in _queued_ids]
@@ -2567,6 +2648,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
         if _latest_market_crisis_payload and _latest_market_crisis_payload.get("aktif"):
             await websocket.send_json({"tip": "piyasa_krizi", "veri": _latest_market_crisis_payload})
+
+        sorunlu_kaynaklar = await asyncio.to_thread(db_kaynak_saglik_sorunlulari)
+        if sorunlu_kaynaklar:
+            await websocket.send_json({"tip": "kaynak_sorunu", "veri": sorunlu_kaynaklar})
 
         while True:
             # İstemciden mesaj beklemiyoruz; bağlantının canlı kalmasını

@@ -64,6 +64,11 @@
     </p>
   </div>
 
+  <!-- ============ KAYNAK SORUNU (backend "kaynak_sorunu" ile doldurur) ============ -->
+  <div id="kaynakSorunuBanner" class="hidden bg-[#fff4f4] border-b border-[#ffc9c9] px-6 sm:px-10 py-2 text-center">
+    <p id="kaynakSorunuText" class="text-[11px] font-semibold text-[#9f0712]"></p>
+  </div>
+
   <!-- ============ PİYASA NABZI (Market Breadth) ============ -->
   <!-- Not: bu kart TEK ve KALICI bir slot — backend'den "piyasa_krizi"
        (aktif) geldiğinde buraya YENİ bir kart eklenmez, marketPulseCrisisView
@@ -406,6 +411,18 @@
     } else {
       actionsEl.innerHTML = "";
     }
+  }
+
+  function handleKaynakSorunu(sorunlular) {
+    const banner = document.getElementById("kaynakSorunuBanner");
+    const text = document.getElementById("kaynakSorunuText");
+    if (!sorunlular || sorunlular.length === 0) {
+      banner.classList.add("hidden");
+      return;
+    }
+    const etiketler = sorunlular.map(s => `${escapeHtml(s.kaynak)} (${s.ardisik_hata} taramadır)`).join(", ");
+    text.textContent = `⚠ Kaynak sorunu: ${etiketler} — veri gelmiyor, sayfa yapısı/erişim değişmiş olabilir.`;
+    banner.classList.remove("hidden");
   }
 
   function updateMarketPulseView() {
@@ -1059,6 +1076,7 @@
       else if (message.tip === "onchain") handleOnchain(message.veri);
       else if (message.tip === "piyasa_krizi") handleMarketCrisis(message.veri);
       else if (message.tip === "x_kesif") handleXKesif(message.veri);
+      else if (message.tip === "kaynak_sorunu") handleKaynakSorunu(message.veri);
     };
 
     ws.onclose = () => {
